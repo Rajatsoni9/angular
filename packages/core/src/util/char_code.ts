@@ -1,10 +1,10 @@
 /**
-* @license
-* Copyright Google Inc. All Rights Reserved.
-*
-* Use of this source code is governed by an MIT-style license that can be
-* found in the LICENSE file at https://angular.io/license
-*/
+ * @license
+ * Copyright Google LLC All Rights Reserved.
+ *
+ * Use of this source code is governed by an MIT-style license that can be
+ * found in the LICENSE file at https://angular.io/license
+ */
 
 /**
  * List ASCII char codes to be used with `String.charCodeAt`
@@ -22,6 +22,8 @@ export const enum CharCode {
   SEMI_COLON = 59,    // ";"
   BACK_SLASH = 92,    // "\\"
   AT_SIGN = 64,       // "@"
+  ZERO = 48,          // "0"
+  NINE = 57,          // "9"
   A = 65,             // "A"
   U = 85,             // "U"
   R = 82,             // "R"

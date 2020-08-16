@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -8,16 +8,22 @@
 // Make the `$localize()` global function available to the compiled templates, and the direct calls
 // below. This would normally be done inside the application `polyfills.ts` file.
 import '@angular/localize/init';
-import {CommonModule, registerLocaleData} from '@angular/common';
+
+import {CommonModule, DOCUMENT, registerLocaleData} from '@angular/common';
+import localeEs from '@angular/common/locales/es';
 import localeRo from '@angular/common/locales/ro';
-import {Component, ContentChild, ElementRef, ContentChildren, Directive, HostBinding, Input, LOCALE_ID, QueryList, TemplateRef, Type, ViewChild, ViewContainerRef, Pipe, PipeTransform, NO_ERRORS_SCHEMA} from '@angular/core';
+import {computeMsgId} from '@angular/compiler';
+import {Component, ContentChild, ContentChildren, Directive, ElementRef, HostBinding, Input, LOCALE_ID, NO_ERRORS_SCHEMA, Pipe, PipeTransform, QueryList, RendererFactory2, TemplateRef, Type, ViewChild, ViewContainerRef, ɵsetDocument} from '@angular/core';
+import {getComponentDef} from '@angular/core/src/render3/definition';
 import {setDelayProjection} from '@angular/core/src/render3/instructions/projection';
+import {TI18n, TIcu} from '@angular/core/src/render3/interfaces/i18n';
+import {DebugNode, HEADER_OFFSET, TVIEW} from '@angular/core/src/render3/interfaces/view';
+import {getComponentLView, loadLContext} from '@angular/core/src/render3/util/discovery_utils';
 import {TestBed} from '@angular/core/testing';
-import {loadTranslations, clearTranslations} from '@angular/localize';
-import {By} from '@angular/platform-browser';
+import {clearTranslations, loadTranslations} from '@angular/localize';
+import {By, ɵDomRendererFactory2 as DomRendererFactory2} from '@angular/platform-browser';
 import {expect} from '@angular/platform-browser/testing/src/matchers';
 import {onlyInIvy} from '@angular/private/testing';
-import {computeMsgId} from '@angular/compiler';
 import {BehaviorSubject} from 'rxjs';
 
 
@@ -72,7 +78,7 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
 
   it('should support interpolations with custom interpolation config', () => {
     loadTranslations({[computeMsgId('Hello {$INTERPOLATION}')]: 'Bonjour {$INTERPOLATION}'});
-    const interpolation = ['{%', '%}'] as[string, string];
+    const interpolation = ['{%', '%}'] as [string, string];
     TestBed.overrideComponent(AppComp, {set: {interpolation}});
     const fixture = initWithTemplate(AppComp, `<div i18n>Hello {% name %}</div>`);
 
@@ -277,7 +283,9 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
       name = `Angular`;
       clicks = 0;
 
-      onClick() { this.clicks++; }
+      onClick() {
+        this.clicks++;
+      }
     }
 
     TestBed.configureTestingModule({declarations: [ListenerComp]});
@@ -526,6 +534,286 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
     });
   });
 
+  describe('should work correctly with namespaces', () => {
+    beforeEach(() => {
+      function _document(): any {
+        // Tell Ivy about the global document
+        ɵsetDocument(document);
+        return document;
+      }
+
+      TestBed.configureTestingModule({
+        providers: [
+          {provide: DOCUMENT, useFactory: _document, deps: []},
+          // TODO(FW-811): switch back to default server renderer (i.e. remove the line below)
+          // once it starts to support Ivy namespace format (URIs) correctly. For now, use
+          // `DomRenderer` that supports Ivy namespace format.
+          {provide: RendererFactory2, useClass: DomRendererFactory2}
+        ],
+      });
+    });
+
+    it('should handle namespaces inside i18n blocks', () => {
+      loadTranslations({
+        [computeMsgId(
+            '{$START_TAG__XHTML_DIV} Hello ' +
+            '{$START_TAG__XHTML_SPAN}world{$CLOSE_TAG__XHTML_SPAN}{$CLOSE_TAG__XHTML_DIV}')]:
+            '{$START_TAG__XHTML_DIV} Bonjour ' +
+            '{$START_TAG__XHTML_SPAN}monde{$CLOSE_TAG__XHTML_SPAN}{$CLOSE_TAG__XHTML_DIV}'
+      });
+
+      const fixture = initWithTemplate(AppComp, `
+        <svg xmlns="http://www.w3.org/2000/svg">
+          <foreignObject i18n>
+            <xhtml:div xmlns="http://www.w3.org/1999/xhtml">
+              Hello <span>world</span>
+            </xhtml:div>
+          </foreignObject>
+        </svg>
+      `);
+
+      const element = fixture.nativeElement;
+      expect(element.textContent.trim()).toBe('Bonjour monde');
+      expect(element.querySelector('svg').namespaceURI).toBe('http://www.w3.org/2000/svg');
+      expect(element.querySelector('div').namespaceURI).toBe('http://www.w3.org/1999/xhtml');
+      expect(element.querySelector('span').namespaceURI).toBe('http://www.w3.org/1999/xhtml');
+    });
+
+    it('should handle namespaces on i18n block containers', () => {
+      loadTranslations({
+        [computeMsgId(' Hello {$START_TAG__XHTML_SPAN}world{$CLOSE_TAG__XHTML_SPAN}')]:
+            ' Bonjour {$START_TAG__XHTML_SPAN}monde{$CLOSE_TAG__XHTML_SPAN}'
+      });
+
+      const fixture = initWithTemplate(AppComp, `
+        <svg xmlns="http://www.w3.org/2000/svg">
+          <foreignObject>
+            <xhtml:div xmlns="http://www.w3.org/1999/xhtml" i18n>
+              Hello <span>world</span>
+            </xhtml:div>
+          </foreignObject>
+        </svg>
+      `);
+
+      const element = fixture.nativeElement;
+      expect(element.textContent.trim()).toBe('Bonjour monde');
+      expect(element.querySelector('svg').namespaceURI).toBe('http://www.w3.org/2000/svg');
+      expect(element.querySelector('div').namespaceURI).toBe('http://www.w3.org/1999/xhtml');
+      expect(element.querySelector('span').namespaceURI).toBe('http://www.w3.org/1999/xhtml');
+    });
+  });
+
+  describe('dynamic TNodes', () => {
+    // When translation occurs the i18n system needs to create dynamic TNodes for the text
+    // nodes so that they can be correctly processed by the `addRemoveViewFromContainer`.
+
+    function toTypeContent(n: DebugNode): string {
+      return `${n.type}(${n.html})`;
+    }
+
+    it('should not create dynamic TNode when no i18n', () => {
+      const fixture = initWithTemplate(AppComp, `Hello <b>World</b>!`);
+      const lView = getComponentLView(fixture.componentInstance);
+      const hello_ = (fixture.nativeElement as Element).firstChild!;
+      const b = hello_.nextSibling!;
+      const world = b.firstChild!;
+      const exclamation = b.nextSibling!;
+      const lViewDebug = lView.debug!;
+      expect(lViewDebug.nodes.map(toTypeContent)).toEqual([
+        'Element(Hello )', 'Element(<b>)', 'Element(!)'
+      ]);
+      expect(lViewDebug.decls).toEqual({
+        start: HEADER_OFFSET,
+        end: HEADER_OFFSET + 4,
+        length: 4,
+        content: [
+          jasmine.objectContaining({index: HEADER_OFFSET + 0, l: hello_}),
+          jasmine.objectContaining({index: HEADER_OFFSET + 1, l: b}),
+          jasmine.objectContaining({index: HEADER_OFFSET + 2, l: world}),
+          jasmine.objectContaining({index: HEADER_OFFSET + 3, l: exclamation}),
+        ]
+      });
+      expect(lViewDebug.i18n)
+          .toEqual(
+              {start: lViewDebug.vars.end, end: lViewDebug.expando.start, length: 0, content: []});
+    });
+
+    it('should create dynamic TNode for text nodes', () => {
+      const fixture =
+          initWithTemplate(AppComp, `<ng-container i18n>Hello <b>World</b>!</ng-container>`);
+      const lView = getComponentLView(fixture.componentInstance);
+      const hello_ = (fixture.nativeElement as Element).firstChild!;
+      const b = hello_.nextSibling!;
+      const world = b.firstChild!;
+      const exclamation = b.nextSibling!;
+      const container = exclamation.nextSibling!;
+      const lViewDebug = lView.debug!;
+      expect(lViewDebug.nodes.map(toTypeContent)).toEqual([
+        'ElementContainer(<!--ng-container-->)'
+      ]);
+      // This assertion shows that the translated nodes are correctly linked into the TNode tree.
+      expect(lViewDebug.nodes[0].children.map(toTypeContent)).toEqual([
+        'Element(Hello )', 'Element(<b>)', 'Element(!)'
+      ]);
+      // This assertion shows that the translated text is not part of decls
+      expect(lViewDebug.decls).toEqual({
+        start: HEADER_OFFSET,
+        end: HEADER_OFFSET + 3,
+        length: 3,
+        content: [
+          jasmine.objectContaining({index: HEADER_OFFSET + 0, l: container}),
+          jasmine.objectContaining({index: HEADER_OFFSET + 1}),
+          jasmine.objectContaining({index: HEADER_OFFSET + 2, l: b}),
+        ]
+      });
+      // This assertion shows that the translated DOM elements (and corresponding TNode's are stored
+      // in i18n section of LView)
+      expect(lViewDebug.i18n).toEqual({
+        start: lViewDebug.vars.end,
+        end: lViewDebug.expando.start,
+        length: 3,
+        content: [
+          jasmine.objectContaining({index: HEADER_OFFSET + 3, l: hello_}),
+          jasmine.objectContaining({index: HEADER_OFFSET + 4, l: world}),
+          jasmine.objectContaining({index: HEADER_OFFSET + 5, l: exclamation}),
+        ]
+      });
+      // This assertion shows the DOM operations which the i18n subsystem performed to update the
+      // DOM with translated text. The offsets in the debug text should match the offsets in the
+      // above assertions.
+      expect((lView[TVIEW]!.data[HEADER_OFFSET + 1]! as TI18n).create.debug).toEqual([
+        'lView[3] = document.createTextNode("Hello ")',
+        '(lView[0] as Element).appendChild(lView[3])',
+        '(lView[0] as Element).appendChild(lView[2])',
+        'lView[4] = document.createTextNode("World")',
+        '(lView[2] as Element).appendChild(lView[4])',
+        'setPreviousOrParentTNode(tView.data[2] as TNode)',
+        'lView[5] = document.createTextNode("!")',
+        '(lView[0] as Element).appendChild(lView[5])',
+      ]);
+    });
+
+    describe('ICU', () => {
+      // In the case of ICUs we can't create TNodes for each ICU part, as different ICU instances
+      // may have different selections active and hence have different shape. In such a case
+      // a single `TIcuContainerNode` should be generated only.
+      it('should create a single dynamic TNode for ICU', () => {
+        const fixture = initWithTemplate(AppComp, `
+          {count, plural, 
+            =0 {just now} 
+            =1 {one minute ago} 
+            other {{{count}} minutes ago}
+          }
+        `);
+        const lView = getComponentLView(fixture.componentInstance);
+        const lViewDebug = lView.debug!;
+        expect((fixture.nativeElement as Element).textContent).toEqual('just now');
+        const text_just_now = (fixture.nativeElement as Element).firstChild!;
+        const icuComment = text_just_now.nextSibling!;
+        expect(lViewDebug.nodes.map(toTypeContent)).toEqual(['IcuContainer(<!--ICU 3-->)']);
+        // We want to ensure that the ICU container does not have any content!
+        // This is because the content is instance dependent and therefore can't be shared
+        // across `TNode`s.
+        expect(lViewDebug.nodes[0].children.map(toTypeContent)).toEqual([
+          'Element(just now)',  // FIXME(misko): This should not be here. The content of the ICU is
+                                // instance specific and as such can't be encoded in the tNodes.
+        ]);
+        expect(lViewDebug.decls).toEqual({
+          start: HEADER_OFFSET,
+          end: HEADER_OFFSET + 1,
+          length: 1,
+          content: [
+            jasmine.objectContaining({
+              t: jasmine.objectContaining({
+                vars: 3,  // one slot for: the `<!--ICU 3-->`
+                          // one slot for: the last selected ICU case.
+                          // one slot for: the actual text node to attach.
+                create: jasmine.any(Object),
+                update: jasmine.any(Object),
+                icus: [jasmine.any(Object)],
+              }),
+              l: null
+            }),
+          ]
+        });
+        expect(((lViewDebug.decls.content[0].t as TI18n).create.debug)).toEqual([
+          'lView[3] = document.createComment("ICU 3")',
+          '(lView[0] as Element).appendChild(lView[3])',
+        ]);
+        expect(((lViewDebug.decls.content[0].t as TI18n).update.debug)).toEqual([
+          'if (mask & 0b1) { icuSwitchCase(lView[3] as Comment, 0, `${lView[1]}`); }',
+          'if (mask & 0b11) { icuUpdateCase(lView[3] as Comment, 0); }',
+        ]);
+        const tIcu = (lViewDebug.decls.content[0].t as TI18n).icus![0];
+        expect(tIcu.cases).toEqual(['0', '1', 'other']);
+        // Case: '0'
+        expect(tIcu.create[0].debug).toEqual([
+          'lView[5] = document.createTextNode("just now")',
+          '(lView[3] as Element).appendChild(lView[5])',
+        ]);
+        expect(tIcu.remove[0].debug).toEqual(['(lView[0] as Element).remove(lView[5])']);
+        expect(tIcu.update[0].debug).toEqual([]);
+
+        // Case: '1'
+        expect(tIcu.create[1].debug).toEqual([
+          'lView[5] = document.createTextNode("one minute ago")',
+          '(lView[3] as Element).appendChild(lView[5])',
+        ]);
+        expect(tIcu.remove[1].debug).toEqual(['(lView[0] as Element).remove(lView[5])']);
+        expect(tIcu.update[1].debug).toEqual([]);
+
+        // Case: 'other'
+        expect(tIcu.create[2].debug).toEqual([
+          'lView[5] = document.createTextNode("")',
+          '(lView[3] as Element).appendChild(lView[5])',
+        ]);
+        expect(tIcu.remove[2].debug).toEqual(['(lView[0] as Element).remove(lView[5])']);
+        expect(tIcu.update[2].debug).toEqual([
+          'if (mask & 0b10) { (lView[5] as Text).textContent = `${lView[2]} minutes ago`; }'
+        ]);
+
+        expect(lViewDebug.i18n).toEqual({
+          start: lViewDebug.vars.end,
+          end: lViewDebug.expando.start,
+          length: 3,
+          content: [
+            // ICU anchor `<!--ICU 3-->`.
+            jasmine.objectContaining({index: HEADER_OFFSET + 3, l: icuComment}),
+            // ICU `TIcu.currentCaseLViewIndex` storage location
+            jasmine.objectContaining({
+              index: HEADER_OFFSET + 4,
+              t: null,
+              l: 0,  // The current ICU case
+            }),
+            jasmine.objectContaining({index: HEADER_OFFSET + 5, l: text_just_now}),
+          ]
+        });
+      });
+
+      // FIXME(misko): re-enable and fix this use case.
+      xit('should support multiple ICUs', () => {
+        const fixture = initWithTemplate(AppComp, `
+          {count, plural, 
+            =0 {just now} 
+            =1 {one minute ago} 
+            other {{{count}} minutes ago}
+          }
+          {count, plural, 
+            =0 {just now} 
+            =1 {one minute ago} 
+            other {{{count}} minutes ago}
+          }
+        `);
+        const lView = getComponentLView(fixture.componentInstance);
+        expect(lView.debug!.nodes.map(toTypeContent)).toEqual(['IcuContainer(<!--ICU 3-->)']);
+        // We want to ensure that the ICU container does not have any content!
+        // This is because the content is instance dependent and therefore can't be shared
+        // across `TNode`s.
+        expect(lView.debug!.nodes[0].children.map(toTypeContent)).toEqual([]);
+      });
+    });
+  });
+
   describe('should support ICU expressions', () => {
     it('with no root node', () => {
       loadTranslations({
@@ -552,6 +840,24 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
 
       const element = fixture.nativeElement;
       expect(element.textContent).toContain('ICU start --> Autre <-- ICU end');
+    });
+
+    it('when `select` or `plural` keywords have spaces after them', () => {
+      loadTranslations({
+        [computeMsgId('{VAR_SELECT , select , 10 {ten} 20 {twenty} other {other}}')]:
+            '{VAR_SELECT , select , 10 {dix} 20 {vingt} other {autre}}',
+        [computeMsgId('{VAR_PLURAL , plural , =0 {zero} =1 {one} other {other}}')]:
+            '{VAR_PLURAL , plural , =0 {zéro} =1 {une} other {autre}}'
+      });
+      const fixture = initWithTemplate(AppComp, `
+        <div i18n>
+          {count, select , 10 {ten} 20 {twenty} other {other}} -
+          {count, plural , =0 {zero} =1 {one} other {other}}
+        </div>
+      `);
+
+      const element = fixture.nativeElement;
+      expect(element.textContent).toContain('autre - zéro');
     });
 
     it('with no root node and text and DOM nodes surrounding ICU', () => {
@@ -599,19 +905,19 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
         other {({{name}})}
       }</div>`);
       expect(fixture.nativeElement.innerHTML)
-          .toEqual(`<div>aucun <b>email</b>!<!--ICU 7--> - (Angular)<!--ICU 13--></div>`);
+          .toEqual(`<div>aucun <b>email</b>!<!--ICU 7--> - (Angular)<!--ICU 14--></div>`);
 
       fixture.componentRef.instance.count = 4;
       fixture.detectChanges();
       expect(fixture.nativeElement.innerHTML)
           .toEqual(
-              `<div>4 <span title="Angular">emails</span><!--ICU 7--> - (Angular)<!--ICU 13--></div>`);
+              `<div>4 <span title="Angular">emails</span><!--ICU 7--> - (Angular)<!--ICU 14--></div>`);
 
       fixture.componentRef.instance.count = 0;
       fixture.componentRef.instance.name = 'John';
       fixture.detectChanges();
       expect(fixture.nativeElement.innerHTML)
-          .toEqual(`<div>aucun <b>email</b>!<!--ICU 7--> - (John)<!--ICU 13--></div>`);
+          .toEqual(`<div>aucun <b>email</b>!<!--ICU 7--> - (John)<!--ICU 14--></div>`);
     });
 
     it('with custom interpolation config', () => {
@@ -619,7 +925,7 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
         [computeMsgId('{VAR_SELECT, select, 10 {ten} other {{INTERPOLATION}}}')]:
             '{VAR_SELECT, select, 10 {dix} other {{INTERPOLATION}}}'
       });
-      const interpolation = ['{%', '%}'] as[string, string];
+      const interpolation = ['{%', '%}'] as [string, string];
       TestBed.overrideComponent(AppComp, {set: {interpolation}});
       const fixture =
           initWithTemplate(AppComp, `<div i18n>{count, select, 10 {ten} other {{% name %}}}</div>`);
@@ -649,20 +955,20 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
       }</span></div>`);
       expect(fixture.nativeElement.innerHTML)
           .toEqual(
-              `<div><span>aucun <b>email</b>!<!--ICU 9--></span> - <span>(Angular)<!--ICU 15--></span></div>`);
+              `<div><span>aucun <b>email</b>!<!--ICU 9--></span> - <span>(Angular)<!--ICU 16--></span></div>`);
 
       fixture.componentRef.instance.count = 4;
       fixture.detectChanges();
       expect(fixture.nativeElement.innerHTML)
           .toEqual(
-              `<div><span>4 <span title="Angular">emails</span><!--ICU 9--></span> - <span>(Angular)<!--ICU 15--></span></div>`);
+              `<div><span>4 <span title="Angular">emails</span><!--ICU 9--></span> - <span>(Angular)<!--ICU 16--></span></div>`);
 
       fixture.componentRef.instance.count = 0;
       fixture.componentRef.instance.name = 'John';
       fixture.detectChanges();
       expect(fixture.nativeElement.innerHTML)
           .toEqual(
-              `<div><span>aucun <b>email</b>!<!--ICU 9--></span> - <span>(John)<!--ICU 15--></span></div>`);
+              `<div><span>aucun <b>email</b>!<!--ICU 9--></span> - <span>(John)<!--ICU 16--></span></div>`);
     });
 
     it('inside template directives', () => {
@@ -704,7 +1010,8 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
             '{VAR_SELECT, select, 10 {dix} 20 {vingt} other {autre}}'
       });
       const fixture = initWithTemplate(
-          AppComp, `
+          AppComp,
+          `
         <ng-template i18n tplRef>` +
               `{count, select, 10 {ten} 20 {twenty} other {other}}` +
               `</ng-template>
@@ -766,7 +1073,20 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
       expect(fixture.nativeElement.innerHTML).toEqual(`<div>autre - 4<!--ICU 5--></div>`);
     });
 
-    it('should return the correct plural form for ICU expressions when using a specific locale', () => {
+    it('should return the correct plural form for ICU expressions when using "ro" locale', () => {
+      // The "ro" locale has a complex plural function that can handle muliple options
+      // (and string inputs)
+      //
+      // function plural(n: number): number {
+      //   let i = Math.floor(Math.abs(n)), v = n.toString().replace(/^[^.]*\.?/, '').length;
+      //   if (i === 1 && v === 0) return 1;
+      //   if (!(v === 0) || n === 0 ||
+      //       !(n === 1) && n % 100 === Math.floor(n % 100) && n % 100 >= 1 && n % 100 <= 19)
+      //     return 3;
+      //   return 5;
+      // }
+      //
+      // Compare this to the "es" locale in the next test
       loadTranslations({
         [computeMsgId(
             '{VAR_PLURAL, plural, =0 {no email} =one {one email} =few {a few emails} =other {lots of emails}}')]:
@@ -800,6 +1120,57 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
       fixture.componentInstance.count = 10;
       fixture.detectChanges();
       expect(fixture.nativeElement.innerHTML).toEqual('a few emails<!--ICU 2-->');
+
+      fixture.componentInstance.count = 20;
+      fixture.detectChanges();
+      expect(fixture.nativeElement.innerHTML).toEqual('lots of emails<!--ICU 2-->');
+
+      fixture.componentInstance.count = 0;
+      fixture.detectChanges();
+      expect(fixture.nativeElement.innerHTML).toEqual('no email<!--ICU 2-->');
+    });
+
+    it(`should return the correct plural form for ICU expressions when using "es" locale`, () => {
+      // The "es" locale has a simple plural function that can only handle a few options
+      // (and not string inputs)
+      //
+      // function plural(n: number): number {
+      //   if (n === 1) return 1;
+      //   return 5;
+      // }
+      //
+      // Compare this to the "ro" locale in the previous test
+      const icuMessage = '{VAR_PLURAL, plural, =0 {no email} =one ' +
+          '{one email} =few {a few emails} =other {lots of emails}}';
+      loadTranslations({[computeMsgId(icuMessage)]: icuMessage});
+      registerLocaleData(localeEs);
+      TestBed.configureTestingModule({providers: [{provide: LOCALE_ID, useValue: 'es'}]});
+      // We could also use `TestBed.overrideProvider(LOCALE_ID, {useValue: 'es'});`
+      const fixture = initWithTemplate(AppComp, `
+          {count, plural,
+            =0 {no email}
+            =one {one email}
+            =few {a few emails}
+            =other {lots of emails}
+          }`);
+
+      expect(fixture.nativeElement.innerHTML).toEqual('no email<!--ICU 2-->');
+
+      // Change detection cycle, no model changes
+      fixture.detectChanges();
+      expect(fixture.nativeElement.innerHTML).toEqual('no email<!--ICU 2-->');
+
+      fixture.componentInstance.count = 3;
+      fixture.detectChanges();
+      expect(fixture.nativeElement.innerHTML).toEqual('lots of emails<!--ICU 2-->');
+
+      fixture.componentInstance.count = 1;
+      fixture.detectChanges();
+      expect(fixture.nativeElement.innerHTML).toEqual('one email<!--ICU 2-->');
+
+      fixture.componentInstance.count = 10;
+      fixture.detectChanges();
+      expect(fixture.nativeElement.innerHTML).toEqual('lots of emails<!--ICU 2-->');
 
       fixture.componentInstance.count = 20;
       fixture.detectChanges();
@@ -864,7 +1235,9 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
             private readonly viewContainerRef: ViewContainerRef,
             private readonly templateRef: TemplateRef<any>) {}
 
-        ngOnInit() { this.viewContainerRef.createEmbeddedView(this.templateRef); }
+        ngOnInit() {
+          this.viewContainerRef.createEmbeddedView(this.templateRef);
+        }
       }
 
       @Component({
@@ -941,7 +1314,9 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
              dir = this;
            }
 
-           attachEmbeddedView() { this.viewContainerRef.createEmbeddedView(this.templateRef); }
+           attachEmbeddedView() {
+             this.viewContainerRef.createEmbeddedView(this.templateRef);
+           }
          }
 
          @Component({
@@ -983,7 +1358,7 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
          expect(fixture.debugElement.nativeElement.innerHTML)
              .toBe('<my-cmp><!--container--></my-cmp>');
 
-         dir !.attachEmbeddedView();
+         dir!.attachEmbeddedView();
          fixture.detectChanges();
          expect(fixture.debugElement.nativeElement.innerHTML)
              .toBe(
@@ -1019,7 +1394,9 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
       class Comp {
         type = 'A';
         visible = true;
-        isVisible() { return true; }
+        isVisible() {
+          return true;
+        }
       }
 
       TestBed.configureTestingModule({declarations: [Comp]});
@@ -1042,7 +1419,7 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
             '{VAR_SELECT, select, A {A - {PH_A}} ' +
             'B {B - {PH_B}} other {other - {PH_WITH_SPACES}}}')]:
             '{VAR_SELECT, select, A {A (translated) - {PH_A}} ' +
-                'B {B (translated) - {PH_B}} other {other (translated) - {PH_WITH_SPACES}}}',
+            'B {B (translated) - {PH_B}} other {other (translated) - {PH_WITH_SPACES}}}',
       });
       @Component({
         selector: 'comp',
@@ -1273,6 +1650,54 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
       // checking the second ICU case
       expect(fixture.nativeElement.textContent.trim()).toBe('deux articles');
     });
+
+    // FIXME(misko): re-enable and fix this use case. Root cause is that
+    // `addRemoveViewFromContainer` needs to understand ICU
+    xit('should handle select expressions without an `other` parameter inside a template', () => {
+      const fixture = initWithTemplate(AppComp, `
+        <ng-container *ngFor="let item of items">{item.value, select, 0 {A} 1 {B} 2 {C}}</ng-container>
+      `);
+      fixture.componentInstance.items = [{value: 0}, {value: 1}, {value: 1337}];
+      fixture.detectChanges();
+      const p = fixture.nativeElement.querySelector('p');
+      const lContext = loadLContext(p);
+      const lView = lContext.lView;
+      const nodeIndex = lContext.nodeIndex;
+      const tView = lView[TVIEW];
+      const i18n = tView.data[nodeIndex + 1] as unknown as TI18n;
+      expect(fixture.nativeElement.textContent.trim()).toBe('AB');
+
+      fixture.componentInstance.items[0].value = 2;
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent.trim()).toBe('CB');
+      fail('testing');
+    });
+
+    it('should render an element whose case did not match initially', () => {
+      const fixture = initWithTemplate(AppComp, `
+        <p *ngFor="let item of items">{item.value, select, 0 {A} 1 {B} 2 {C}}</p>
+      `);
+      fixture.componentInstance.items = [{value: 0}, {value: 1}, {value: 1337}];
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent.trim()).toBe('AB');
+
+      fixture.componentInstance.items[2].value = 2;
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent.trim()).toBe('ABC');
+    });
+
+    it('should remove an element whose case matched initially, but does not anymore', () => {
+      const fixture = initWithTemplate(AppComp, `
+        <p *ngFor="let item of items">{item.value, select, 0 {A} 1 {B} 2 {C}}</p>
+      `);
+      fixture.componentInstance.items = [{value: 0}, {value: 1}];
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent.trim()).toBe('AB');
+
+      fixture.componentInstance.items[0].value = 1337;
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent.trim()).toBe('B');
+    });
   });
 
   describe('should support attributes', () => {
@@ -1326,7 +1751,7 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
 
     it('with custom interpolation config', () => {
       loadTranslations({[computeMsgId('Hello {$INTERPOLATION}', 'm')]: 'Bonjour {$INTERPOLATION}'});
-      const interpolation = ['{%', '%}'] as[string, string];
+      const interpolation = ['{%', '%}'] as [string, string];
       TestBed.overrideComponent(AppComp, {set: {interpolation}});
       const fixture =
           initWithTemplate(AppComp, `<div i18n-title="m|d" title="Hello {% name %}"></div>`);
@@ -1367,7 +1792,9 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
       })
       class TitleDir {
         @Input() title = '';
-        constructor() { titleDirInstances.push(this); }
+        constructor() {
+          titleDirInstances.push(this);
+        }
       }
 
       @Component({
@@ -1397,7 +1824,9 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
       @Directive({selector: '[title]'})
       class TitleDir {
         @Input() title: string = '';
-        constructor(public elRef: ElementRef) { titleDirInstances.push(this); }
+        constructor(public elRef: ElementRef) {
+          titleDirInstances.push(this);
+        }
       }
 
       @Component({
@@ -1429,7 +1858,9 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
       let dirInstance: WithInput;
       @Directive({selector: '[dir]'})
       class WithInput {
-        constructor() { dirInstance = this; }
+        constructor() {
+          dirInstance = this;
+        }
         @Input() dir: string = '';
       }
 
@@ -1445,7 +1876,7 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
       const fixture = TestBed.createComponent(TestComp);
       fixture.detectChanges();
 
-      expect(dirInstance !.dir).toBe('Bonjour Angular');
+      expect(dirInstance!.dir).toBe('Bonjour Angular');
     });
 
     it('should allow directive inputs (as interpolated props)' +
@@ -1456,7 +1887,9 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
          let dirInstance: WithInput;
          @Directive({selector: '[dir]'})
          class WithInput {
-           constructor() { dirInstance = this; }
+           constructor() {
+             dirInstance = this;
+           }
            @Input() dir: string = '';
          }
 
@@ -1472,7 +1905,7 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
          const fixture = TestBed.createComponent(TestComp);
          fixture.detectChanges();
 
-         expect(dirInstance !.dir).toBe('Bonjour Angular');
+         expect(dirInstance!.dir).toBe('Bonjour Angular');
        });
 
     it('should apply i18n attributes during second template pass', () => {
@@ -1537,7 +1970,7 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
         template: '{{ messageText }}',
       })
       class WelcomeComp {
-        @Input() messageText !: string;
+        @Input() messageText!: string;
       }
 
       @Component({
@@ -1593,15 +2026,51 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
     });
   });
 
+  describe('empty translations', () => {
+    it('should replace existing text content with empty translation', () => {
+      loadTranslations({[computeMsgId('Some Text')]: ''});
+      const fixture = initWithTemplate(AppComp, '<div i18n>Some Text</div>');
+      expect(fixture.nativeElement.textContent).toBe('');
+    });
+
+    it('should replace existing DOM elements with empty translation', () => {
+      loadTranslations({
+        [computeMsgId(
+            ' Start {$START_TAG_DIV}DIV{$CLOSE_TAG_DIV}' +
+            '{$START_TAG_SPAN}SPAN{$CLOSE_TAG_SPAN} End ')]: '',
+      });
+      const fixture = initWithTemplate(AppComp, `
+        <div i18n>
+          Start
+          <div>DIV</div>
+          <span>SPAN</span>
+          End
+        </div>
+      `);
+      expect(fixture.nativeElement.textContent).toBe('');
+    });
+
+    it('should replace existing ICU content with empty translation', () => {
+      loadTranslations({
+        [computeMsgId('{VAR_PLURAL, plural, =0 {zero} other {more than zero}}')]: '',
+      });
+      const fixture = initWithTemplate(AppComp, `
+        <div i18n>{count, plural, =0 {zero} other {more than zero}}</div>
+      `);
+      expect(fixture.nativeElement.textContent).toBe('');
+    });
+  });
+
   it('should work with directives and host bindings', () => {
     let directiveInstances: ClsDir[] = [];
 
     @Directive({selector: '[test]'})
     class ClsDir {
-      @HostBinding('className')
-      klass = 'foo';
+      @HostBinding('className') klass = 'foo';
 
-      constructor() { directiveInstances.push(this); }
+      constructor() {
+        directiveInstances.push(this);
+      }
     }
 
     @Component({
@@ -1641,7 +2110,7 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
     // but IE does not.
     expect(outerDiv.getAttribute('title')).toBe('début 2 milieu 1 fin');
     expect(outerDiv.getAttribute('class')).toBe('foo');
-    expect(outerDiv.textContent !.trim()).toBe('traduction: un email');
+    expect(outerDiv.textContent!.trim()).toBe('traduction: un email');
     expect(innerDiv.getAttribute('class')).toBe('foo');
 
     directiveInstances.forEach(instance => instance.klass = 'bar');
@@ -1651,7 +2120,7 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
 
     expect(outerDiv.getAttribute('title')).toBe('début 3 milieu 2 fin');
     expect(outerDiv.getAttribute('class')).toBe('bar');
-    expect(outerDiv.textContent !.trim()).toBe('traduction: 2 emails');
+    expect(outerDiv.textContent!.trim()).toBe('traduction: 2 emails');
     expect(innerDiv.getAttribute('class')).toBe('bar');
   });
 
@@ -1660,21 +2129,25 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
     let calledValue = false;
     @Component({selector: 'my-comp', template: ''})
     class MyComp {
-      t !: string;
+      t!: string;
       @Input()
-      get title() { return this.t; }
+      get title() {
+        return this.t;
+      }
       set title(title) {
         calledTitle = true;
         this.t = title;
       }
 
       @Input()
-      get value() { return this.val; }
+      get value() {
+        return this.val;
+      }
       set value(value: string) {
         calledValue = true;
         this.val = value;
       }
-      val !: string;
+      val!: string;
     }
 
     TestBed.configureTestingModule({declarations: [AppComp, MyComp]});
@@ -2050,7 +2523,6 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
     });
 
     it('should display/destroy projected i18n content', () => {
-
       loadTranslations({
         [computeMsgId('{VAR_SELECT, select, A {A} B {B} other {other}}')]:
             '{VAR_SELECT, select, A {A} B {B} other {other}}'
@@ -2109,7 +2581,7 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
       @Directive({selector: '[text]', inputs: ['text'], exportAs: 'textDir'})
       class TextDirective {
         // TODO(issue/24571): remove '!'.
-        text !: string;
+        text!: string;
         constructor() {}
       }
 
@@ -2119,16 +2591,18 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
         @ContentChild(TemplateRef, {static: true}) template !: TemplateRef<any>;
 
         // TODO(issue/24571): remove '!'.
-        @ViewChild('vc', {read: ViewContainerRef, static: true})
-        vc !: ViewContainerRef;
+        @ViewChild('vc', {read: ViewContainerRef, static: true}) vc!: ViewContainerRef;
 
         // TODO(issue/24571): remove '!'.
-        @ContentChildren(TextDirective, {descendants: true})
-        query !: QueryList<TextDirective>;
+        @ContentChildren(TextDirective, {descendants: true}) query!: QueryList<TextDirective>;
 
-        create() { this.vc.createEmbeddedView(this.template); }
+        create() {
+          this.vc.createEmbeddedView(this.template);
+        }
 
-        destroy() { this.vc.clear(); }
+        destroy() {
+          this.vc.clear();
+        }
       }
 
       TestBed.configureTestingModule({declarations: [TextDirective, DivQuery]});
@@ -2224,7 +2698,9 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
     @Directive({selector: 'input'})
     class InputsDir {
       constructor(private elementRef: ElementRef) {}
-      ngOnInit() { this.elementRef.nativeElement.value = 'value set in Directive.ngOnInit'; }
+      ngOnInit() {
+        this.elementRef.nativeElement.value = 'value set in Directive.ngOnInit';
+      }
     }
 
     @Component({
@@ -2248,7 +2724,9 @@ onlyInIvy('Ivy i18n logic').describe('runtime i18n', () => {
     @Directive({selector: 'input'})
     class InputsDir {
       constructor(private elementRef: ElementRef) {}
-      ngOnInit() { this.elementRef.nativeElement.value = 'value set in Directive.ngOnInit'; }
+      ngOnInit() {
+        this.elementRef.nativeElement.value = 'value set in Directive.ngOnInit';
+      }
     }
 
     @Component({
@@ -2401,12 +2879,16 @@ class AppCompWithWhitespaces {
 })
 class DirectiveWithTplRef {
   constructor(public vcRef: ViewContainerRef, public tplRef: TemplateRef<{}>) {}
-  ngOnInit() { this.vcRef.createEmbeddedView(this.tplRef, {}); }
+  ngOnInit() {
+    this.vcRef.createEmbeddedView(this.tplRef, {});
+  }
 }
 
 @Pipe({name: 'uppercase'})
 class UppercasePipe implements PipeTransform {
-  transform(value: string) { return value.toUpperCase(); }
+  transform(value: string) {
+    return value.toUpperCase();
+  }
 }
 
 @Directive({selector: `[dialog]`})

@@ -1,15 +1,15 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
  */
 import * as ts from 'typescript';
-import {absoluteFrom} from '../../file_system';
+import {absoluteFrom, getSourceFileOrError} from '../../file_system';
 import {runInEachFileSystem} from '../../file_system/testing';
 import {getDeclaration, makeProgram} from '../../testing';
-import {CtorParameter} from '../src/host';
+import {ClassMember, ClassMemberKind, CtorParameter, TypeValueReferenceKind} from '../src/host';
 import {TypeScriptReflectionHost} from '../src/typescript';
 import {isNamedClassDeclaration} from '../src/util';
 
@@ -178,7 +178,7 @@ runInEachFileSystem(() => {
         const args = host.getConstructorParameters(clazz)!;
         expect(args.length).toBe(1);
         const param = args[0].typeValueReference;
-        if (param === null || !param.local) {
+        if (param === null || param.kind !== TypeValueReferenceKind.LOCAL) {
           return fail('Expected local parameter');
         }
         expect(param).not.toBeNull();
@@ -329,8 +329,8 @@ runInEachFileSystem(() => {
         } else if (directTargetDecl === null) {
           return fail('No declaration found for DirectTarget');
         }
-        expect(targetDecl.node!.getSourceFile().fileName)
-            .toBe(_('/node_modules/absolute/index.ts'));
+        expect(targetDecl.node!.getSourceFile())
+            .toBe(getSourceFileOrError(program, _('/node_modules/absolute/index.ts')));
         expect(ts.isClassDeclaration(targetDecl.node!)).toBe(true);
         expect(directTargetDecl.viaModule).toBe('absolute');
         expect(directTargetDecl.node).toBe(targetDecl.node);
@@ -363,6 +363,7 @@ runInEachFileSystem(() => {
           node: targetDecl,
           known: null,
           viaModule: 'absolute',
+          identity: null,
         });
       });
 
@@ -393,6 +394,7 @@ runInEachFileSystem(() => {
           node: targetDecl,
           known: null,
           viaModule: 'absolute',
+          identity: null,
         });
       });
     });
@@ -448,6 +450,95 @@ runInEachFileSystem(() => {
         ]);
       });
     });
+
+    describe('getMembersOfClass()', () => {
+      it('should get string literal members of class', () => {
+        const {program} = makeProgram([{
+          name: _('/entry.ts'),
+          contents: `
+            class Foo {
+              'string-literal-property-member' = 'my value';
+            }
+        `
+        }]);
+        const members = getMembers(program);
+        expect(members.length).toBe(1);
+        expectMember(members[0], 'string-literal-property-member', ClassMemberKind.Property);
+      });
+
+      it('should retrieve method members', () => {
+        const {program} = makeProgram([{
+          name: _('/entry.ts'),
+          contents: `
+            class Foo {
+              myMethod(): void {
+              }
+            }
+        `
+        }]);
+        const members = getMembers(program);
+        expect(members.length).toBe(1);
+        expectMember(members[0], 'myMethod', ClassMemberKind.Method);
+      });
+
+      it('should retrieve constructor as member', () => {
+        const {program} = makeProgram([{
+          name: _('/entry.ts'),
+          contents: `
+            class Foo {
+              constructor() {}
+            }
+        `
+        }]);
+        const members = getMembers(program);
+        expect(members.length).toBe(1);
+        expectMember(members[0], 'constructor', ClassMemberKind.Constructor);
+      });
+
+      it('should retrieve decorators of member', () => {
+        const {program} = makeProgram([{
+          name: _('/entry.ts'),
+          contents: `
+            declare var Input;
+
+            class Foo {
+              @Input()
+              prop: string;
+            }
+        `
+        }]);
+        const members = getMembers(program);
+        expect(members.length).toBe(1);
+        expect(members[0].decorators).not.toBeNull();
+        expect(members[0].decorators![0].name).toBe('Input');
+      });
+
+      it('identifies static members', () => {
+        const {program} = makeProgram([{
+          name: _('/entry.ts'),
+          contents: `
+            class Foo {
+              static staticMember = '';
+            }
+        `
+        }]);
+        const members = getMembers(program);
+        expect(members.length).toBe(1);
+        expect(members[0].isStatic).toBeTrue();
+      });
+
+      function getMembers(program: ts.Program) {
+        const clazz = getDeclaration(program, _('/entry.ts'), 'Foo', isNamedClassDeclaration);
+        const checker = program.getTypeChecker();
+        const host = new TypeScriptReflectionHost(checker);
+        return host.getMembersOfClass(clazz);
+      }
+
+      function expectMember(member: ClassMember, name: string, kind: ClassMemberKind) {
+        expect(member.name).toEqual(name);
+        expect(member.kind).toEqual(kind);
+      }
+    });
   });
 
   function expectParameter(
@@ -457,17 +548,20 @@ runInEachFileSystem(() => {
     if (type === undefined) {
       expect(param.typeValueReference).toBeNull();
     } else {
-      if (param.typeValueReference === null) {
+      if (param.typeValueReference.kind === TypeValueReferenceKind.UNAVAILABLE) {
         return fail(`Expected parameter ${name} to have a typeValueReference`);
       }
-      if (param.typeValueReference.local && typeof type === 'string') {
+      if (param.typeValueReference.kind === TypeValueReferenceKind.LOCAL &&
+          typeof type === 'string') {
         expect(argExpressionToString(param.typeValueReference.expression)).toEqual(type);
-      } else if (!param.typeValueReference.local && typeof type !== 'string') {
+      } else if (
+          param.typeValueReference.kind === TypeValueReferenceKind.IMPORTED &&
+          typeof type !== 'string') {
         expect(param.typeValueReference.moduleName).toEqual(type.moduleName);
         expect(param.typeValueReference.importedName).toEqual(type.name);
       } else {
         return fail(`Mismatch between typeValueReference and expected type: ${param.name} / ${
-            param.typeValueReference.local}`);
+            param.typeValueReference.kind}`);
       }
     }
     if (decorator !== undefined) {

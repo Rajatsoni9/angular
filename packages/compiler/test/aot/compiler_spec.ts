@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -190,23 +190,64 @@ describe('compiler (unbundled Angular)', () => {
   });
 
   describe('errors', () => {
-    it('should only warn if not all arguments of an @Injectable class can be resolved', () => {
+    it('should not error or warn if an unprovided @Injectable with DI-incompatible ' +
+           'constructor is discovered',
+       () => {
+         const FILES: MockDirectory = {
+           app: {
+             'app.ts': `
+            import {Injectable, NgModule} from '@angular/core';
+
+            // This injectable is not provided. It is used as a base class for another
+            // service but is not directly provided. It's allowed for such classes to
+            // have a decorator applied as they use Angular features.
+            @Injectable()
+            export class ServiceBase {
+              constructor(a: boolean) {}
+
+              ngOnDestroy() {}
+            }
+
+            @Injectable()
+            export class MyService extends ServiceBase {
+              constructor() {
+                super(true);
+              }
+            }
+
+            @NgModule({providers: [MyService]})
+            export class AppModule {}
+          `
+           }
+         };
+
+         spyOn(console, 'error');
+         spyOn(console, 'warn');
+         expect(() => compile([FILES, angularFiles])).not.toThrowError();
+         expect(console.warn).toHaveBeenCalledTimes(0);
+         expect(console.error).toHaveBeenCalledTimes(0);
+       });
+
+    it('should error if parameters of a provided @Injectable class cannot be resolved', () => {
       const FILES: MockDirectory = {
         app: {
           'app.ts': `
-                import {Injectable} from '@angular/core';
+            import {Injectable, NgModule} from '@angular/core';
 
-                @Injectable()
-                export class MyService {
-                  constructor(a: boolean) {}
-                }
-              `
+            @Injectable()
+            export class MyService {
+              constructor(a: boolean) {}
+            }
+
+            @NgModule({
+              providers: [MyService],
+            })
+            export class MyModule {}
+          `
         }
       };
-      const warnSpy = spyOn(console, 'warn');
-      compile([FILES, angularFiles]);
-      expect(warnSpy).toHaveBeenCalledWith(
-          `Warning: Can't resolve all parameters for MyService in /app/app.ts: (?). This will become an error in Angular v6.x`);
+      expect(() => compile([FILES, angularFiles]))
+          .toThrowError(`Can't resolve all parameters for MyService in /app/app.ts: (?).`);
     });
 
     it('should error if not all arguments of an @Injectable class can be resolved if strictInjectionParameters is true',
@@ -498,7 +539,7 @@ describe('compiler (unbundled Angular)', () => {
             'base.ts': `
               export class AValue {}
               export type AType = {};
-  
+
               export class AClass {
                 constructor(a: AType, b: AValue) {}
               }
@@ -531,23 +572,23 @@ describe('compiler (unbundled Angular)', () => {
             'base.ts': `
               export class AClass {
                 constructor(arg: any) {}
-  
+
                 static create(arg: any = null): AClass { return new AClass(arg); }
-  
+
                 call(arg: any) {}
               }
-  
+
               export function simple(arg: any) { return [arg]; }
-  
+
               export const ctor_arg = {};
               export const ctor_call = new AClass(ctor_arg);
-  
+
               export const static_arg = {};
               export const static_call = AClass.create(static_arg);
-  
+
               export const complex_arg = {};
               export const complex_call = AClass.create().call(complex_arg);
-  
+
               export const simple_arg = {};
               export const simple_call = simple(simple_arg);
             `
@@ -557,7 +598,7 @@ describe('compiler (unbundled Angular)', () => {
           'app': {
             'main.ts': `
               import {ctor_call, static_call, complex_call, simple_call} from '../lib/base';
-  
+
               export const calls = [ctor_call, static_call, complex_call, simple_call];
             `,
           }

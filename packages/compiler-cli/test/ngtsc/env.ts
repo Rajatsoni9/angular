@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -12,7 +12,7 @@ import * as ts from 'typescript';
 
 import {createCompilerHost, createProgram} from '../../index';
 import {main, mainDiagnosticsForTest, readNgcCommandLineAndConfiguration} from '../../src/main';
-import {absoluteFrom, AbsoluteFsPath, FileSystem, getFileSystem, NgtscCompilerHost} from '../../src/ngtsc/file_system';
+import {absoluteFrom, AbsoluteFsPath, FileSystem, getFileSystem, NgtscCompilerHost, relativeFrom} from '../../src/ngtsc/file_system';
 import {Folder, MockFileSystem} from '../../src/ngtsc/file_system/testing';
 import {IndexedComponent} from '../../src/ngtsc/indexer';
 import {NgtscProgram} from '../../src/ngtsc/program';
@@ -57,7 +57,9 @@ export class NgtscTestEnvironment {
         "noEmitOnError": true,
         "strictNullChecks": true,
         "outDir": "built",
+        "rootDir": ".",
         "baseUrl": ".",
+        "allowJs": true,
         "declaration": true,
         "target": "es5",
         "newLine": "lf",
@@ -119,6 +121,20 @@ export class NgtscTestEnvironment {
     this.multiCompileHostExt.flushWrittenFileTracking();
   }
 
+  getTsProgram(): ts.Program {
+    if (this.oldProgram === null) {
+      throw new Error('No ts.Program has been created yet.');
+    }
+    return this.oldProgram.getTsProgram();
+  }
+
+  getReuseTsProgram(): ts.Program {
+    if (this.oldProgram === null) {
+      throw new Error('No ts.Program has been created yet.');
+    }
+    return (this.oldProgram as NgtscProgram).getReuseTsProgram();
+  }
+
   /**
    * Older versions of the CLI do not provide the `CompilerHost.getModifiedResourceFiles()` method.
    * This results in the `changedResources` set being `null`.
@@ -158,11 +174,16 @@ export class NgtscTestEnvironment {
     this.multiCompileHostExt.invalidate(absFilePath);
   }
 
-  tsconfig(extraOpts: {[key: string]: string|boolean|null} = {}, extraRootDirs?: string[]): void {
+  tsconfig(
+      extraOpts: {[key: string]: string|boolean|null} = {}, extraRootDirs?: string[],
+      files?: string[]): void {
     const tsconfig: {[key: string]: any} = {
       extends: './tsconfig-base.json',
       angularCompilerOptions: {...extraOpts, enableIvy: true},
     };
+    if (files !== undefined) {
+      tsconfig['files'] = files;
+    }
     if (extraRootDirs !== undefined) {
       tsconfig.compilerOptions = {
         rootDirs: ['.', ...extraRootDirs],
@@ -253,7 +274,8 @@ const ROOT_PREFIX = 'root/';
 
 class FileNameToModuleNameHost extends AugmentedCompilerHost {
   fileNameToModuleName(importedFilePath: string): string {
-    const relativeFilePath = this.fs.relative(this.fs.pwd(), this.fs.resolve(importedFilePath));
+    const relativeFilePath =
+        relativeFrom(this.fs.relative(this.fs.pwd(), this.fs.resolve(importedFilePath)));
     const rootedPath = this.fs.join('root', relativeFilePath);
     return rootedPath.replace(/(\.d)?.ts$/, '');
   }

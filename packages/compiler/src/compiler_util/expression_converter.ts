@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -154,6 +154,11 @@ export enum BindingForm {
   // Try to generate a simple binding (no temporaries or statements)
   // otherwise generate a general binding
   TrySimple,
+
+  // Inlines assignment of temporaries into the generated expression. The result may still
+  // have statements attached for declarations of temporary variables.
+  // This is the only relevant form for Ivy, the other forms are only used in ViewEngine.
+  Expression,
 }
 
 /**
@@ -168,7 +173,6 @@ export function convertPropertyBinding(
   if (!localResolver) {
     localResolver = new DefaultLocalResolver();
   }
-  const currValExpr = createCurrValueExpr(bindingId);
   const visitor =
       new _AstToIrVisitor(localResolver, implicitReceiver, bindingId, interpolationFunction);
   const outputExpr: o.Expression = expressionWithoutBuiltins.visit(visitor, _Mode.Expression);
@@ -180,8 +184,11 @@ export function convertPropertyBinding(
 
   if (visitor.temporaryCount === 0 && form == BindingForm.TrySimple) {
     return new ConvertPropertyBindingResult([], outputExpr);
+  } else if (form === BindingForm.Expression) {
+    return new ConvertPropertyBindingResult(stmts, outputExpr);
   }
 
+  const currValExpr = createCurrValueExpr(bindingId);
   stmts.push(currValExpr.set(outputExpr).toDeclStmt(o.DYNAMIC_TYPE, [o.StmtModifier.Final]));
   return new ConvertPropertyBindingResult(stmts, currValExpr);
 }
@@ -665,14 +672,14 @@ class _AstToIrVisitor implements cdAst.AstVisitor {
       this._nodeMap.set(
           leftMostSafe,
           new cdAst.MethodCall(
-              leftMostSafe.span, leftMostSafe.sourceSpan, leftMostSafe.receiver, leftMostSafe.name,
-              leftMostSafe.args));
+              leftMostSafe.span, leftMostSafe.sourceSpan, leftMostSafe.nameSpan,
+              leftMostSafe.receiver, leftMostSafe.name, leftMostSafe.args));
     } else {
       this._nodeMap.set(
           leftMostSafe,
           new cdAst.PropertyRead(
-              leftMostSafe.span, leftMostSafe.sourceSpan, leftMostSafe.receiver,
-              leftMostSafe.name));
+              leftMostSafe.span, leftMostSafe.sourceSpan, leftMostSafe.nameSpan,
+              leftMostSafe.receiver, leftMostSafe.name));
     }
 
     // Recursively convert the node now without the guarded member access.

@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -89,6 +89,19 @@ runInEachFileSystem(() => {
     @NotAComponent('metadata') class Target {}
     `);
       expect(res).toBe('');
+    });
+
+    it('should preserve quotes around class member names', () => {
+      const res = compileAndPrint(`
+        import {Component, Input} from '@angular/core';
+
+        @Component('metadata') class Target {
+          @Input() 'has-dashes-in-name' = 123;
+          @Input() noDashesInName = 456;
+        }
+      `);
+      expect(res).toContain(
+          `{ 'has-dashes-in-name': [{ type: Input }], noDashesInName: [{ type: Input }] })`);
     });
   });
 

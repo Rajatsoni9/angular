@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -43,11 +43,7 @@ export const NUMBER_VALUE_ACCESSOR: any = {
 @Directive({
   selector:
       'input[type=number][formControlName],input[type=number][formControl],input[type=number][ngModel]',
-  host: {
-    '(change)': 'onChange($event.target.value)',
-    '(input)': 'onChange($event.target.value)',
-    '(blur)': 'onTouched()'
-  },
+  host: {'(input)': 'onChange($event.target.value)', '(blur)': 'onTouched()'},
   providers: [NUMBER_VALUE_ACCESSOR]
 })
 export class NumberValueAccessor implements ControlValueAccessor {

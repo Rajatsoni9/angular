@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -105,7 +105,7 @@ export function getRootDirs(host: ts.CompilerHost, options: ts.CompilerOptions):
   // See:
   // https://github.com/Microsoft/TypeScript/blob/3f7357d37f66c842d70d835bc925ec2a873ecfec/src/compiler/sys.ts#L650
   // Also compiler options might be set via an API which doesn't normalize paths
-  return rootDirs.map(rootDir => absoluteFrom(rootDir));
+  return rootDirs.map(rootDir => absoluteFrom(host.getCanonicalFileName(rootDir)));
 }
 
 export function nodeDebugInfo(node: ts.Node): string {
@@ -122,13 +122,14 @@ export function nodeDebugInfo(node: ts.Node): string {
  */
 export function resolveModuleName(
     moduleName: string, containingFile: string, compilerOptions: ts.CompilerOptions,
-    compilerHost: ts.CompilerHost,
+    compilerHost: ts.ModuleResolutionHost&Pick<ts.CompilerHost, 'resolveModuleNames'>,
     moduleResolutionCache: ts.ModuleResolutionCache|null): ts.ResolvedModule|undefined {
   if (compilerHost.resolveModuleNames) {
-    // FIXME: Additional parameters are required in TS3.6, but ignored in 3.5.
-    // Remove the any cast once google3 is fully on TS3.6.
-    return (compilerHost as any)
-        .resolveModuleNames([moduleName], containingFile, undefined, undefined, compilerOptions)[0];
+    return compilerHost.resolveModuleNames(
+        [moduleName], containingFile,
+        undefined,  // reusedNames
+        undefined,  // redirectedReference
+        compilerOptions)[0];
   } else {
     return ts
         .resolveModuleName(

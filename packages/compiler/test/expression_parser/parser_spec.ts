@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -8,11 +8,11 @@
 
 import {ASTWithSource, BindingPipe, Interpolation, ParserError, TemplateBinding, VariableBinding} from '@angular/compiler/src/expression_parser/ast';
 import {Lexer} from '@angular/compiler/src/expression_parser/lexer';
-import {Parser, SplitInterpolation} from '@angular/compiler/src/expression_parser/parser';
+import {IvyParser, Parser, SplitInterpolation} from '@angular/compiler/src/expression_parser/parser';
 import {expect} from '@angular/platform-browser/testing/src/matchers';
 
 
-import {unparse} from './utils/unparser';
+import {unparse, unparseWithSpan} from './utils/unparser';
 import {validate} from './utils/validator';
 
 describe('parser', () => {
@@ -195,6 +195,56 @@ describe('parser', () => {
 
     it('should report when encountering interpolation', () => {
       expectActionError('{{a()}}', 'Got interpolation ({{}}) where expression was expected');
+    });
+  });
+
+  describe('parse spans', () => {
+    it('should record property read span', () => {
+      const ast = parseAction('foo');
+      expect(unparseWithSpan(ast)).toContain(['foo', 'foo']);
+      expect(unparseWithSpan(ast)).toContain(['foo', '[nameSpan] foo']);
+    });
+
+    it('should record accessed property read span', () => {
+      const ast = parseAction('foo.bar');
+      expect(unparseWithSpan(ast)).toContain(['foo.bar', 'foo.bar']);
+      expect(unparseWithSpan(ast)).toContain(['foo.bar', '[nameSpan] bar']);
+    });
+
+    it('should record safe property read span', () => {
+      const ast = parseAction('foo?.bar');
+      expect(unparseWithSpan(ast)).toContain(['foo?.bar', 'foo?.bar']);
+      expect(unparseWithSpan(ast)).toContain(['foo?.bar', '[nameSpan] bar']);
+    });
+
+    it('should record method call span', () => {
+      const ast = parseAction('foo()');
+      expect(unparseWithSpan(ast)).toContain(['foo()', 'foo()']);
+      expect(unparseWithSpan(ast)).toContain(['foo()', '[nameSpan] foo']);
+    });
+
+    it('should record accessed method call span', () => {
+      const ast = parseAction('foo.bar()');
+      expect(unparseWithSpan(ast)).toContain(['foo.bar()', 'foo.bar()']);
+      expect(unparseWithSpan(ast)).toContain(['foo.bar()', '[nameSpan] bar']);
+    });
+
+    it('should record safe method call span', () => {
+      const ast = parseAction('foo?.bar()');
+      expect(unparseWithSpan(ast)).toContain(['foo?.bar()', 'foo?.bar()']);
+      expect(unparseWithSpan(ast)).toContain(['foo?.bar()', '[nameSpan] bar']);
+    });
+
+    it('should record property write span', () => {
+      const ast = parseAction('a = b');
+      expect(unparseWithSpan(ast)).toContain(['a = b', 'a = b']);
+      expect(unparseWithSpan(ast)).toContain(['a = b', '[nameSpan] a']);
+    });
+
+    it('should record accessed property write span', () => {
+      const ast = parseAction('a.b = c');
+      expect(unparseWithSpan(ast)).toContain(['a.b = c', 'a.b = c']);
+      expect(unparseWithSpan(ast)).toContain(['a.b = c', '[nameSpan] b']);
     });
   });
 
@@ -589,7 +639,7 @@ describe('parser', () => {
           ['of: [1,2,3] | pipe ', 'of', '[1,2,3] | pipe'],
           ['of: [1,2,3] | pipe as items; ', 'items', 'of'],
           ['let i=index, ', 'i', 'index'],
-          ['count as len, ', 'len', 'count'],
+          ['count as len,', 'len', 'count'],
         ]);
       });
     });
@@ -690,6 +740,68 @@ describe('parser', () => {
     it('should report when encountering field write', () => {
       expectError(validate(parseSimpleBinding('a = b')), 'Bindings cannot contain assignments');
     });
+
+    describe('Ivy-only validations', () => {
+      it('should throw if a pipe is used inside a conditional', () => {
+        expectError(
+            validate(parseSimpleBindingIvy('(hasId | myPipe) ? "my-id" : ""')),
+            'Host binding expression cannot contain pipes');
+      });
+
+      it('should throw if a pipe is used inside a function call', () => {
+        expectError(
+            validate(parseSimpleBindingIvy('getId(true, id | myPipe)')),
+            'Host binding expression cannot contain pipes');
+      });
+
+      it('should throw if a pipe is used inside a method call', () => {
+        expectError(
+            validate(parseSimpleBindingIvy('idService.getId(true, id | myPipe)')),
+            'Host binding expression cannot contain pipes');
+      });
+
+      it('should throw if a pipe is used inside a safe method call', () => {
+        expectError(
+            validate(parseSimpleBindingIvy('idService?.getId(true, id | myPipe)')),
+            'Host binding expression cannot contain pipes');
+      });
+
+      it('should throw if a pipe is used inside a property access', () => {
+        expectError(
+            validate(parseSimpleBindingIvy('a[id | myPipe]')),
+            'Host binding expression cannot contain pipes');
+      });
+
+      it('should throw if a pipe is used inside a keyed read expression', () => {
+        expectError(
+            validate(parseSimpleBindingIvy('a[id | myPipe].b')),
+            'Host binding expression cannot contain pipes');
+      });
+
+      it('should throw if a pipe is used inside a safe property read', () => {
+        expectError(
+            validate(parseSimpleBindingIvy('(id | myPipe)?.id')),
+            'Host binding expression cannot contain pipes');
+      });
+
+      it('should throw if a pipe is used inside a non-null assertion', () => {
+        expectError(
+            validate(parseSimpleBindingIvy('[id | myPipe]!')),
+            'Host binding expression cannot contain pipes');
+      });
+
+      it('should throw if a pipe is used inside a prefix not expression', () => {
+        expectError(
+            validate(parseSimpleBindingIvy('!(id | myPipe)')),
+            'Host binding expression cannot contain pipes');
+      });
+
+      it('should throw if a pipe is used inside a binary expression', () => {
+        expectError(
+            validate(parseSimpleBindingIvy('(id | myPipe) === true')),
+            'Host binding expression cannot contain pipes');
+      });
+    });
   });
 
   describe('wrapLiteralPrimitive', () => {
@@ -731,6 +843,10 @@ function createParser() {
   return new Parser(new Lexer());
 }
 
+function createIvyParser() {
+  return new IvyParser(new Lexer());
+}
+
 function parseAction(text: string, location: any = null, offset: number = 0): ASTWithSource {
   return createParser().parseAction(text, location, offset);
 }
@@ -764,6 +880,11 @@ function splitInterpolation(text: string, location: any = null): SplitInterpolat
 
 function parseSimpleBinding(text: string, location: any = null, offset: number = 0): ASTWithSource {
   return createParser().parseSimpleBinding(text, location, offset);
+}
+
+function parseSimpleBindingIvy(
+    text: string, location: any = null, offset: number = 0): ASTWithSource {
+  return createIvyParser().parseSimpleBinding(text, location, offset);
 }
 
 function checkInterpolation(exp: string, expected?: string) {

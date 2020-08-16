@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -34,7 +34,7 @@ const EMPTY_RULE = 'function anonymous(n) {\n\n}';
 const WEEK_DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const HEADER = `/**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -91,13 +91,13 @@ module.exports = (gulp, done) => {
         `${RELATIVE_I18N_GLOBAL_FOLDER}/${locale}.js`,
         generateGlobalLocale(
             locale, locale === 'en' ? new cldrJs('en') : localeData, baseCurrencies));
-
   });
   console.log(`${LOCALES.length} locale files generated.`);
 
   console.log(`All i18n cldr files have been generated, formatting files..."`);
   shelljs.exec(
-      `yarn clang-format -i ${I18N_DATA_FOLDER}/**/*.ts ${I18N_DATA_FOLDER}/*.ts ${I18N_FOLDER}/currencies.ts ${I18N_CORE_FOLDER}/locale_en.ts ${I18N_GLOBAL_FOLDER}/*.js`,
+      `yarn clang-format -i ${I18N_DATA_FOLDER}/**/*.ts ${I18N_DATA_FOLDER}/*.ts ${
+          I18N_FOLDER}/currencies.ts ${I18N_CORE_FOLDER}/locale_en.ts ${I18N_GLOBAL_FOLDER}/*.js`,
       {silent: true});
   done();
 };
@@ -138,7 +138,7 @@ function generateGlobalLocale(locale, localeData, baseCurrencies) {
   global.ng = global.ng || {};
   global.ng.common = global.ng.common || {};
   global.ng.common.locales = global.ng.common.locales || {};
-  var u = undefined;
+  const u = undefined;
   ${getPluralFunction(locale, false)}
   global.ng.common.locales['${normalizeLocale(locale)}'] = ${data};
 })(typeof globalThis !== 'undefined' && globalThis || typeof global !== 'undefined' && global || typeof window !== 'undefined' && window);
@@ -278,7 +278,8 @@ function generateCurrenciesFile() {
 export type CurrenciesSymbols = [string] | [string | undefined, string];
 
 /** @internal */
-export const CURRENCIES_EN: {[code: string]: CurrenciesSymbols | [string | undefined, string | undefined, number]} = ${stringify(baseCurrencies, true)};
+export const CURRENCIES_EN: {[code: string]: CurrenciesSymbols | [string | undefined, string | undefined, number]} = ${
+      stringify(baseCurrencies, true)};
 `;
 }
 
@@ -559,21 +560,18 @@ function toRegExp(s) {
  * todo(ocombe): replace "cldr" extractPluralRuleFunction with our own extraction using "CldrJS"
  * because the 2 libs can become out of sync if they use different versions of the cldr database
  */
-function getPluralFunction(locale, typescript = true) {
+function getPluralFunction(locale, withTypes = true) {
   let fn = cldr.extractPluralRuleFunction(locale).toString();
 
   if (fn === EMPTY_RULE) {
     fn = DEFAULT_RULE;
   }
 
-  const numberType = typescript ? ': number' : '';
+  const numberType = withTypes ? ': number' : '';
   fn = fn.replace(/function anonymous\(n[^}]+{/g, `function plural(n${numberType})${numberType} {`)
+           .replace(toRegExp('var'), 'let')
            .replace(toRegExp('if(typeof n==="string")n=parseInt(n,10);'), '')
            .replace(toRegExp('\n}'), ';\n}');
-
-  if (typescript) {
-    fn = fn.replace(toRegExp('var'), 'let');
-  }
 
   // The replacement values must match the `Plural` enum from common.
   // We do not use the enum directly to avoid depending on that package.

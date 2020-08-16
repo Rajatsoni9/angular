@@ -1,11 +1,15 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
  */
 import * as yargs from 'yargs';
+
+import {info} from '../utils/console';
+
+import {restoreCommitMessage} from './restore-commit-message';
 import {validateFile} from './validate-file';
 import {validateCommitRange} from './validate-range';
 
@@ -13,6 +17,28 @@ import {validateCommitRange} from './validate-range';
 export function buildCommitMessageParser(localYargs: yargs.Argv) {
   return localYargs.help()
       .strict()
+      .command(
+          'restore-commit-message-draft', false, {
+            'file-env-variable': {
+              type: 'string',
+              conflicts: ['file'],
+              required: true,
+              description:
+                  'The key for the environment variable which holds the arguments for the ' +
+                  'prepare-commit-msg hook as described here: ' +
+                  'https://git-scm.com/docs/githooks#_prepare_commit_msg',
+              coerce: arg => {
+                const [file, source] = (process.env[arg] || '').split(' ');
+                if (!file) {
+                  throw new Error(`Provided environment variable "${arg}" was not found.`);
+                }
+                return [file, source];
+              },
+            }
+          },
+          args => {
+            restoreCommitMessage(args.fileEnvVariable[0], args.fileEnvVariable[1]);
+          })
       .command(
           'pre-commit-validate', 'Validate the most recent commit message', {
             'file': {
@@ -51,10 +77,10 @@ export function buildCommitMessageParser(localYargs: yargs.Argv) {
             // If on CI, and not pull request number is provided, assume the branch
             // being run on is an upstream branch.
             if (process.env['CI'] && process.env['CI_PULL_REQUEST'] === 'false') {
-              console.info(
-                  `Since valid commit messages are enforced by PR linting on CI, we do not\n` +
-                  `need to validate commit messages on CI runs on upstream branches.\n\n` +
-                  `Skipping check of provided commit range`);
+              info(`Since valid commit messages are enforced by PR linting on CI, we do not`);
+              info(`need to validate commit messages on CI runs on upstream branches.`);
+              info();
+              info(`Skipping check of provided commit range`);
               return;
             }
             validateCommitRange(argv.range);

@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -76,11 +76,6 @@ export function hasNameIdentifier(declaration: ts.Declaration): declaration is t
   const namedDeclaration: ts.Declaration&{name?: ts.Node} = declaration;
   return namedDeclaration.name !== undefined && ts.isIdentifier(namedDeclaration.name);
 }
-
-export type PathMappings = {
-  baseUrl: string,
-  paths: {[key: string]: string[]}
-};
 
 /**
  * Test whether a path is "relative".

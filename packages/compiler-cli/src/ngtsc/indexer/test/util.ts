@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -16,7 +16,7 @@ import {getDeclaration, makeProgram} from '../../testing';
 import {ComponentMeta} from '../src/context';
 
 /** Dummy file URL */
-export function getTestFilePath(): AbsoluteFsPath {
+function getTestFilePath(): AbsoluteFsPath {
   return absoluteFrom('/TEST_FILE.ts');
 }
 

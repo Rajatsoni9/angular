@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -84,6 +84,21 @@ export function tsDeclareVariable(id: ts.Identifier, type: ts.TypeNode): ts.Vari
   return ts.createVariableStatement(
       /* modifiers */ undefined,
       /* declarationList */[decl]);
+}
+
+/**
+ * Creates a `ts.TypeQueryNode` for a coerced input.
+ *
+ * For example: `typeof MatInput.ngAcceptInputType_value`, where MatInput is `typeName` and `value`
+ * is the `coercedInputName`.
+ *
+ * @param typeName The `EntityName` of the Directive where the static coerced input is defined.
+ * @param coercedInputName The field name of the coerced input.
+ */
+export function tsCreateTypeQueryForCoercedInput(
+    typeName: ts.EntityName, coercedInputName: string): ts.TypeQueryNode {
+  return ts.createTypeQueryNode(
+      ts.createQualifiedName(typeName, `ngAcceptInputType_${coercedInputName}`));
 }
 
 /**

@@ -1,12 +1,13 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
  */
 import * as realFs from 'fs';
 import * as fsExtra from 'fs-extra';
+import * as os from 'os';
 import {absoluteFrom, dirname, relativeFrom, setFileSystem} from '../src/helpers';
 import {NodeJSFileSystem} from '../src/node_js_file_system';
 import {AbsoluteFsPath} from '../src/types';
@@ -41,6 +42,16 @@ describe('NodeJSFileSystem', () => {
       const result = fs.readFile(abcPath);
       expect(result).toBe('Some contents');
       expect(spy).toHaveBeenCalledWith(abcPath, 'utf8');
+    });
+  });
+
+  describe('readFileBuffer()', () => {
+    it('should delegate to fs.readFileSync()', () => {
+      const buffer = new Buffer('Some contents');
+      const spy = spyOn(realFs, 'readFileSync').and.returnValue(buffer);
+      const result = fs.readFileBuffer(abcPath);
+      expect(result).toBe(buffer);
+      expect(spy).toHaveBeenCalledWith(abcPath);
     });
   });
 
@@ -153,14 +164,6 @@ describe('NodeJSFileSystem', () => {
       expect(mkdirCalls).toEqual([xPath, xyPath, xyzPath]);
     });
 
-    describe('removeDeep()', () => {
-      it('should delegate to fsExtra.remove()', () => {
-        const spy = spyOn(fsExtra, 'removeSync');
-        fs.removeDeep(abcPath);
-        expect(spy).toHaveBeenCalledWith(abcPath);
-      });
-    });
-
     it('should not fail if a directory (that did not exist before) does exist when trying to create it',
        () => {
          let abcPathExists = false;
@@ -228,4 +231,28 @@ describe('NodeJSFileSystem', () => {
       expect(isDirectorySpy).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('removeDeep()', () => {
+    it('should delegate to fsExtra.remove()', () => {
+      const spy = spyOn(fsExtra, 'removeSync');
+      fs.removeDeep(abcPath);
+      expect(spy).toHaveBeenCalledWith(abcPath);
+    });
+  });
+
+  describe('isCaseSensitive()', () => {
+    it('should return true if the FS is case-sensitive', () => {
+      const isCaseSensitive = !realFs.existsSync(__filename.toUpperCase());
+      expect(fs.isCaseSensitive()).toEqual(isCaseSensitive);
+    });
+  });
+
+  if (os.platform() === 'win32') {
+    // Only relevant on Windows
+    describe('relative', () => {
+      it('should handle Windows paths on different drives', () => {
+        expect(fs.relative('C:\\a\\b\\c', 'D:\\a\\b\\d')).toEqual(absoluteFrom('D:\\a\\b\\d'));
+      });
+    });
+  }
 });

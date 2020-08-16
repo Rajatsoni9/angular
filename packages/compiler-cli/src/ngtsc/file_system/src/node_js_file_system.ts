@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -9,7 +9,7 @@
 import * as fs from 'fs';
 import * as fsExtra from 'fs-extra';
 import * as p from 'path';
-import {absoluteFrom, relativeFrom} from './helpers';
+import {absoluteFrom} from './helpers';
 import {AbsoluteFsPath, FileStats, FileSystem, PathSegment, PathString} from './types';
 
 /**
@@ -23,7 +23,10 @@ export class NodeJSFileSystem implements FileSystem {
   readFile(path: AbsoluteFsPath): string {
     return fs.readFileSync(path, 'utf8');
   }
-  writeFile(path: AbsoluteFsPath, data: string, exclusive: boolean = false): void {
+  readFileBuffer(path: AbsoluteFsPath): Buffer {
+    return fs.readFileSync(path);
+  }
+  writeFile(path: AbsoluteFsPath, data: string|Buffer, exclusive: boolean = false): void {
     fs.writeFileSync(path, data, exclusive ? {flag: 'wx'} : undefined);
   }
   removeFile(path: AbsoluteFsPath): void {
@@ -68,7 +71,9 @@ export class NodeJSFileSystem implements FileSystem {
   }
   isCaseSensitive(): boolean {
     if (this._caseSensitive === undefined) {
-      this._caseSensitive = this.exists(togglePathCase(__filename));
+      // Note the use of the real file-system is intentional:
+      // `this.exists()` relies upon `isCaseSensitive()` so that would cause an infinite recursion.
+      this._caseSensitive = !fs.existsSync(togglePathCase(__filename));
     }
     return this._caseSensitive;
   }
@@ -88,8 +93,8 @@ export class NodeJSFileSystem implements FileSystem {
   isRooted(path: string): boolean {
     return p.isAbsolute(path);
   }
-  relative<T extends PathString>(from: T, to: T): PathSegment {
-    return relativeFrom(this.normalize(p.relative(from, to)));
+  relative<T extends PathString>(from: T, to: T): PathSegment|AbsoluteFsPath {
+    return this.normalize(p.relative(from, to)) as PathSegment | AbsoluteFsPath;
   }
   basename(filePath: string, extension?: string): PathSegment {
     return p.basename(filePath, extension) as PathSegment;

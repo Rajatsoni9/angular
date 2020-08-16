@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -9,14 +9,14 @@ import {Statement} from '@angular/compiler';
 import MagicString from 'magic-string';
 import * as ts from 'typescript';
 
-import {absoluteFromSourceFile, AbsoluteFsPath, dirname, relative} from '../../../src/ngtsc/file_system';
+import {absoluteFromSourceFile, AbsoluteFsPath, dirname, relative, toRelativeImport} from '../../../src/ngtsc/file_system';
 import {NOOP_DEFAULT_IMPORT_RECORDER, Reexport} from '../../../src/ngtsc/imports';
 import {Import, ImportManager, translateStatement} from '../../../src/ngtsc/translator';
 import {isDtsPath} from '../../../src/ngtsc/util/src/typescript';
 import {ModuleWithProvidersInfo} from '../analysis/module_with_providers_analyzer';
 import {ExportInfo} from '../analysis/private_declarations_analyzer';
 import {CompiledClass} from '../analysis/types';
-import {isAssignment} from '../host/esm2015_host';
+import {getContainingStatement, isAssignment} from '../host/esm2015_host';
 import {NgccReflectionHost, POST_R3_MARKER, PRE_R3_MARKER, SwitchableVariableDeclaration} from '../host/ngcc_host';
 
 import {RedundantDecoratorMap, RenderingFormatter} from './rendering_formatter';
@@ -57,8 +57,9 @@ export class EsmRenderingFormatter implements RenderingFormatter {
 
       if (from) {
         const basePath = stripExtension(from);
-        const relativePath = './' + relative(dirname(entryPointBasePath), basePath);
-        exportFrom = entryPointBasePath !== basePath ? ` from '${relativePath}'` : '';
+        const relativePath = relative(dirname(entryPointBasePath), basePath);
+        const relativeImport = toRelativeImport(relativePath);
+        exportFrom = entryPointBasePath !== basePath ? ` from '${relativeImport}'` : '';
       }
 
       const exportStr = `\nexport {${e.identifier}}${exportFrom};`;
@@ -104,7 +105,8 @@ export class EsmRenderingFormatter implements RenderingFormatter {
     if (!classSymbol) {
       throw new Error(`Compiled class does not have a valid symbol: ${compiledClass.name}`);
     }
-    const declarationStatement = getDeclarationStatement(classSymbol.declaration.valueDeclaration);
+    const declarationStatement =
+        getContainingStatement(classSymbol.implementation.valueDeclaration);
     const insertionPoint = declarationStatement.getEnd();
     output.appendLeft(insertionPoint, '\n' + definitions);
   }
@@ -196,10 +198,10 @@ export class EsmRenderingFormatter implements RenderingFormatter {
       const ngModuleName = info.ngModule.node.name.text;
       const declarationFile = absoluteFromSourceFile(info.declaration.getSourceFile());
       const ngModuleFile = absoluteFromSourceFile(info.ngModule.node.getSourceFile());
-      const importPath = info.ngModule.viaModule ||
-          (declarationFile !== ngModuleFile ?
-               stripExtension(`./${relative(dirname(declarationFile), ngModuleFile)}`) :
-               null);
+      const relativePath = relative(dirname(declarationFile), ngModuleFile);
+      const relativeImport = toRelativeImport(relativePath);
+      const importPath = info.ngModule.ownedByModuleGuess ||
+          (declarationFile !== ngModuleFile ? stripExtension(relativeImport) : null);
       const ngModule = generateImportString(importManager, importPath, ngModuleName);
 
       if (info.declaration.type) {
@@ -275,17 +277,6 @@ export class EsmRenderingFormatter implements RenderingFormatter {
     return (
         id && id.name === 'ModuleWithProviders' && (this.isCore || id.from === '@angular/core'));
   }
-}
-
-function getDeclarationStatement(node: ts.Node): ts.Statement {
-  let statement = node;
-  while (statement) {
-    if (ts.isVariableStatement(statement) || ts.isClassDeclaration(statement)) {
-      return statement;
-    }
-    statement = statement.parent;
-  }
-  throw new Error(`Class is not defined in a declaration statement: ${node.getText()}`);
 }
 
 function findStatement(node: ts.Node): ts.Statement|undefined {

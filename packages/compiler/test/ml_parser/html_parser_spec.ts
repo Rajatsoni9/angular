@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -43,6 +43,14 @@ import {humanizeDom, humanizeDomSourceSpans, humanizeLineColumn} from './ast_spe
           expect(humanizeDom(parser.parse('<![CDATA[text]]>', 'TestComp'))).toEqual([
             [html.Text, 'text', 0]
           ]);
+        });
+
+        it('should normalize line endings within CDATA', () => {
+          const parsed = parser.parse('<![CDATA[ line 1 \r\n line 2 ]]>', 'TestComp');
+          expect(humanizeDom(parsed)).toEqual([
+            [html.Text, ' line 1 \n line 2 ', 0],
+          ]);
+          expect(parsed.errors).toEqual([]);
         });
       });
 
@@ -200,6 +208,37 @@ import {humanizeDom, humanizeDomSourceSpans, humanizeLineColumn} from './ast_spe
                 [html.Text, '\n', 1],
               ]);
         });
+
+        it('should normalize line endings in text', () => {
+          let parsed: ParseTreeResult;
+          parsed = parser.parse('<title> line 1 \r\n line 2 </title>', 'TestComp');
+          expect(humanizeDom(parsed)).toEqual([
+            [html.Element, 'title', 0],
+            [html.Text, ' line 1 \n line 2 ', 1],
+          ]);
+          expect(parsed.errors).toEqual([]);
+
+          parsed = parser.parse('<script> line 1 \r\n line 2 </script>', 'TestComp');
+          expect(humanizeDom(parsed)).toEqual([
+            [html.Element, 'script', 0],
+            [html.Text, ' line 1 \n line 2 ', 1],
+          ]);
+          expect(parsed.errors).toEqual([]);
+
+          parsed = parser.parse('<div> line 1 \r\n line 2 </div>', 'TestComp');
+          expect(humanizeDom(parsed)).toEqual([
+            [html.Element, 'div', 0],
+            [html.Text, ' line 1 \n line 2 ', 1],
+          ]);
+          expect(parsed.errors).toEqual([]);
+
+          parsed = parser.parse('<span> line 1 \r\n line 2 </span>', 'TestComp');
+          expect(humanizeDom(parsed)).toEqual([
+            [html.Element, 'span', 0],
+            [html.Text, ' line 1 \n line 2 ', 1],
+          ]);
+          expect(parsed.errors).toEqual([]);
+        });
       });
 
       describe('attributes', () => {
@@ -209,6 +248,16 @@ import {humanizeDom, humanizeDomSourceSpans, humanizeLineColumn} from './ast_spe
             [html.Attribute, 'kEy', 'v'],
             [html.Attribute, 'key2', 'v2'],
           ]);
+        });
+
+        it('should normalize line endings within attribute values', () => {
+          const result =
+              parser.parse('<div key="  \r\n line 1 \r\n   line 2  "></div>', 'TestComp');
+          expect(humanizeDom(result)).toEqual([
+            [html.Element, 'div', 0],
+            [html.Attribute, 'key', '  \n line 1 \n   line 2  '],
+          ]);
+          expect(result.errors).toEqual([]);
         });
 
         it('should parse attributes without values', () => {
@@ -248,6 +297,11 @@ import {humanizeDom, humanizeDomSourceSpans, humanizeLineColumn} from './ast_spe
             [html.Element, 'div', 0],
           ]);
         });
+        it('should normalize line endings within comments', () => {
+          expect(humanizeDom(parser.parse('<!-- line 1 \r\n line 2 -->', 'TestComp'))).toEqual([
+            [html.Comment, 'line 1 \n line 2', 0],
+          ]);
+        });
       });
 
       describe('expansion forms', () => {
@@ -277,6 +331,111 @@ import {humanizeDom, humanizeDomSourceSpans, humanizeLineColumn} from './ast_spe
             [html.Text, 'One {{message}}', 0]
           ]);
         });
+
+        it('should normalize line-endings in expansion forms in inline templates', () => {
+          const parsed = parser.parse(
+              `<div>\r\n` +
+                  `  {\r\n` +
+                  `    messages.length,\r\n` +
+                  `    plural,\r\n` +
+                  `    =0 {You have \r\nno\r\n messages}\r\n` +
+                  `    =1 {One {{message}}}}\r\n` +
+                  `</div>`,
+              'TestComp', {
+                tokenizeExpansionForms: true,
+                escapedString: true,
+              });
+
+          expect(humanizeDom(parsed)).toEqual([
+            [html.Element, 'div', 0],
+            [html.Text, '\n  ', 1],
+            [html.Expansion, '\n    messages.length', 'plural', 1],
+            [html.ExpansionCase, '=0', 2],
+            [html.ExpansionCase, '=1', 2],
+            [html.Text, '\n', 1],
+          ]);
+          const cases = (<any>parsed.rootNodes[0]).children[1].cases;
+
+          expect(humanizeDom(new ParseTreeResult(cases[0].expression, []))).toEqual([
+            [html.Text, 'You have \nno\n messages', 0],
+          ]);
+
+          expect(humanizeDom(new ParseTreeResult(cases[1].expression, []))).toEqual([
+            [html.Text, 'One {{message}}', 0]
+          ]);
+
+          expect(parsed.errors).toEqual([]);
+        });
+
+        it('should normalize line-endings in expansion forms in external templates if `i18nNormalizeLineEndingsInICUs` is true',
+           () => {
+             const parsed = parser.parse(
+                 `<div>\r\n` +
+                     `  {\r\n` +
+                     `    messages.length,\r\n` +
+                     `    plural,\r\n` +
+                     `    =0 {You have \r\nno\r\n messages}\r\n` +
+                     `    =1 {One {{message}}}}\r\n` +
+                     `</div>`,
+                 'TestComp', {
+                   tokenizeExpansionForms: true,
+                   escapedString: false,
+                   i18nNormalizeLineEndingsInICUs: true
+                 });
+
+             expect(humanizeDom(parsed)).toEqual([
+               [html.Element, 'div', 0],
+               [html.Text, '\n  ', 1],
+               [html.Expansion, '\n    messages.length', 'plural', 1],
+               [html.ExpansionCase, '=0', 2],
+               [html.ExpansionCase, '=1', 2],
+               [html.Text, '\n', 1],
+             ]);
+             const cases = (<any>parsed.rootNodes[0]).children[1].cases;
+
+             expect(humanizeDom(new ParseTreeResult(cases[0].expression, []))).toEqual([
+               [html.Text, 'You have \nno\n messages', 0],
+             ]);
+
+             expect(humanizeDom(new ParseTreeResult(cases[1].expression, []))).toEqual([
+               [html.Text, 'One {{message}}', 0]
+             ]);
+
+             expect(parsed.errors).toEqual([]);
+           });
+
+        it('should not normalize line-endings in ICU expressions in external templates when `i18nNormalizeLineEndingsInICUs` is not set',
+           () => {
+             const parsed = parser.parse(
+                 `<div>\r\n` +
+                     `  {\r\n` +
+                     `    messages.length,\r\n` +
+                     `    plural,\r\n` +
+                     `    =0 {You have \r\nno\r\n messages}\r\n` +
+                     `    =1 {One {{message}}}}\r\n` +
+                     `</div>`,
+                 'TestComp', {tokenizeExpansionForms: true, escapedString: false});
+
+             expect(humanizeDom(parsed)).toEqual([
+               [html.Element, 'div', 0],
+               [html.Text, '\n  ', 1],
+               [html.Expansion, '\r\n    messages.length', 'plural', 1],
+               [html.ExpansionCase, '=0', 2],
+               [html.ExpansionCase, '=1', 2],
+               [html.Text, '\n', 1],
+             ]);
+             const cases = (<any>parsed.rootNodes[0]).children[1].cases;
+
+             expect(humanizeDom(new ParseTreeResult(cases[0].expression, []))).toEqual([
+               [html.Text, 'You have \nno\n messages', 0],
+             ]);
+
+             expect(humanizeDom(new ParseTreeResult(cases[1].expression, []))).toEqual([
+               [html.Text, 'One {{message}}', 0]
+             ]);
+
+             expect(parsed.errors).toEqual([]);
+           });
 
         it('should parse out expansion forms', () => {
           const parsed = parser.parse(
@@ -308,6 +467,64 @@ import {humanizeDom, humanizeDomSourceSpans, humanizeLineColumn} from './ast_spe
             [html.Text, ' ', 0],
           ]);
         });
+
+        it('should normalize line endings in nested expansion forms for inline templates', () => {
+          const parsed = parser.parse(
+              `{\r\n` +
+                  `  messages.length, plural,\r\n` +
+                  `  =0 { zero \r\n` +
+                  `       {\r\n` +
+                  `         p.gender, select,\r\n` +
+                  `         male {m}\r\n` +
+                  `       }\r\n` +
+                  `     }\r\n` +
+                  `}`,
+              'TestComp', {tokenizeExpansionForms: true, escapedString: true});
+          expect(humanizeDom(parsed)).toEqual([
+            [html.Expansion, '\n  messages.length', 'plural', 0],
+            [html.ExpansionCase, '=0', 1],
+          ]);
+
+          const expansion = parsed.rootNodes[0] as html.Expansion;
+          expect(humanizeDom(new ParseTreeResult(expansion.cases[0].expression, []))).toEqual([
+            [html.Text, 'zero \n       ', 0],
+            [html.Expansion, '\n         p.gender', 'select', 0],
+            [html.ExpansionCase, 'male', 1],
+            [html.Text, '\n     ', 0],
+          ]);
+
+          expect(parsed.errors).toEqual([]);
+        });
+
+        it('should not normalize line endings in nested expansion forms for external templates, when `i18nNormalizeLineEndingsInICUs` is not set',
+           () => {
+             const parsed = parser.parse(
+                 `{\r\n` +
+                     `  messages.length, plural,\r\n` +
+                     `  =0 { zero \r\n` +
+                     `       {\r\n` +
+                     `         p.gender, select,\r\n` +
+                     `         male {m}\r\n` +
+                     `       }\r\n` +
+                     `     }\r\n` +
+                     `}`,
+                 'TestComp', {tokenizeExpansionForms: true});
+             expect(humanizeDom(parsed)).toEqual([
+               [html.Expansion, '\r\n  messages.length', 'plural', 0],
+               [html.ExpansionCase, '=0', 1],
+             ]);
+
+             const expansion = parsed.rootNodes[0] as html.Expansion;
+             expect(humanizeDom(new ParseTreeResult(expansion.cases[0].expression, []))).toEqual([
+               [html.Text, 'zero \n       ', 0],
+               [html.Expansion, '\r\n         p.gender', 'select', 0],
+               [html.ExpansionCase, 'male', 1],
+               [html.Text, '\n     ', 0],
+             ]);
+
+
+             expect(parsed.errors).toEqual([]);
+           });
 
         it('should error when expansion form is not closed', () => {
           const p = parser.parse(
@@ -366,7 +583,10 @@ import {humanizeDom, humanizeDomSourceSpans, humanizeLineColumn} from './ast_spe
           expect(humanizeDomSourceSpans(parser.parse(
                      '<div [prop]="v1" (e)="do()" attr="v2" noValue>\na\n</div>', 'TestComp')))
               .toEqual([
-                [html.Element, 'div', 0, '<div [prop]="v1" (e)="do()" attr="v2" noValue>'],
+                [
+                  html.Element, 'div', 0, '<div [prop]="v1" (e)="do()" attr="v2" noValue>',
+                  '<div [prop]="v1" (e)="do()" attr="v2" noValue>', '</div>'
+                ],
                 [html.Attribute, '[prop]', 'v1', '[prop]="v1"'],
                 [html.Attribute, '(e)', 'do()', '(e)="do()"'],
                 [html.Attribute, 'attr', 'v2', 'attr="v2"'],
@@ -385,12 +605,61 @@ import {humanizeDom, humanizeDomSourceSpans, humanizeLineColumn} from './ast_spe
           expect(node.endSourceSpan!.end.offset).toEqual(12);
         });
 
+        it('should not set the end source span for void elements', () => {
+          expect(humanizeDomSourceSpans(parser.parse('<div><br></div>', 'TestComp'))).toEqual([
+            [html.Element, 'div', 0, '<div>', '<div>', '</div>'],
+            [html.Element, 'br', 1, '<br>', '<br>', null],
+          ]);
+        });
+
+        it('should not set the end source span for multiple void elements', () => {
+          expect(humanizeDomSourceSpans(parser.parse('<div><br><hr></div>', 'TestComp'))).toEqual([
+            [html.Element, 'div', 0, '<div>', '<div>', '</div>'],
+            [html.Element, 'br', 1, '<br>', '<br>', null],
+            [html.Element, 'hr', 1, '<hr>', '<hr>', null],
+          ]);
+        });
+
+        it('should not set the end source span for standalone void elements', () => {
+          expect(humanizeDomSourceSpans(parser.parse('<br>', 'TestComp'))).toEqual([
+            [html.Element, 'br', 0, '<br>', '<br>', null],
+          ]);
+        });
+
+        it('should set the end source span for standalone self-closing elements', () => {
+          expect(humanizeDomSourceSpans(parser.parse('<br/>', 'TestComp'))).toEqual([
+            [html.Element, 'br', 0, '<br/>', '<br/>', '<br/>'],
+          ]);
+        });
+
+        it('should set the end source span for self-closing elements', () => {
+          expect(humanizeDomSourceSpans(parser.parse('<div><br/></div>', 'TestComp'))).toEqual([
+            [html.Element, 'div', 0, '<div>', '<div>', '</div>'],
+            [html.Element, 'br', 1, '<br/>', '<br/>', '<br/>'],
+          ]);
+        });
+
+        it('should not set the end source span for elements that are implicitly closed', () => {
+          expect(humanizeDomSourceSpans(parser.parse('<div><p></div>', 'TestComp'))).toEqual([
+            [html.Element, 'div', 0, '<div>', '<div>', '</div>'],
+            [html.Element, 'p', 1, '<p>', '<p>', null],
+          ]);
+          expect(humanizeDomSourceSpans(parser.parse('<div><li>A<li>B</div>', 'TestComp')))
+              .toEqual([
+                [html.Element, 'div', 0, '<div>', '<div>', '</div>'],
+                [html.Element, 'li', 1, '<li>', '<li>', null],
+                [html.Text, 'A', 2, 'A'],
+                [html.Element, 'li', 1, '<li>', '<li>', null],
+                [html.Text, 'B', 2, 'B'],
+              ]);
+        });
+
         it('should support expansion form', () => {
           expect(humanizeDomSourceSpans(parser.parse(
                      '<div>{count, plural, =0 {msg}}</div>', 'TestComp',
                      {tokenizeExpansionForms: true})))
               .toEqual([
-                [html.Element, 'div', 0, '<div>'],
+                [html.Element, 'div', 0, '<div>', '<div>', '</div>'],
                 [html.Expansion, 'count', 'plural', 1, '{count, plural, =0 {msg}}'],
                 [html.ExpansionCase, '=0', 2, '=0 {msg}'],
               ]);

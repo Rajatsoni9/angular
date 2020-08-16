@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -15,10 +15,10 @@ import {Sanitizer} from '../../sanitization/sanitizer';
 import {LContainer} from './container';
 import {ComponentDef, ComponentTemplate, DirectiveDef, DirectiveDefList, HostBindingsFunction, PipeDef, PipeDefList, ViewQueriesFunction} from './definition';
 import {I18nUpdateOpCodes, TI18n} from './i18n';
-import {TConstants, TElementNode, TNode, TViewNode} from './node';
+import {TConstants, TElementNode, TNode, TNodeTypeAsString, TViewNode} from './node';
 import {PlayerHandler} from './player';
 import {LQueries, TQueries} from './query';
-import {RElement, Renderer3, RendererFactory3} from './renderer';
+import {RComment, RElement, Renderer3, RendererFactory3} from './renderer';
 import {TStylingKey, TStylingRange} from './styling';
 
 
@@ -31,7 +31,7 @@ export const TVIEW = 1;
 export const FLAGS = 2;
 export const PARENT = 3;
 export const NEXT = 4;
-export const QUERIES = 5;
+export const TRANSPLANTED_VIEWS_TO_REFRESH = 5;
 export const T_HOST = 6;
 export const CLEANUP = 7;
 export const CONTEXT = 8;
@@ -45,8 +45,9 @@ export const DECLARATION_VIEW = 15;
 export const DECLARATION_COMPONENT_VIEW = 16;
 export const DECLARATION_LCONTAINER = 17;
 export const PREORDER_HOOK_FLAGS = 18;
+export const QUERIES = 19;
 /** Size of LView's header. Necessary to adjust for it when setting slots.  */
-export const HEADER_OFFSET = 19;
+export const HEADER_OFFSET = 20;
 
 
 // This interface replaces the real LView interface if it is an arg or a
@@ -68,6 +69,15 @@ export interface OpaqueViewState {
  * don't have to edit the data array based on which views are present.
  */
 export interface LView extends Array<any> {
+  /**
+   * Human readable representation of the `LView`.
+   *
+   * NOTE: This property only exists if `ngDevMode` is set to `true` and it is not present in
+   * production. Its presence is purely to help debug issue in development, and should not be relied
+   * on in production application.
+   */
+  debug?: LViewDebug;
+
   /**
    * The host node for this LView instance, if this is a component view.
    * If this is an embedded view, HOST will be null.
@@ -261,7 +271,7 @@ export interface LView extends Array<any> {
    *
    * see also:
    *   - https://hackmd.io/@mhevery/rJUJsvv9H write up of the problem
-   *   - `LContainer[ACTIVE_INDEX]` for flag which marks which `LContainer` has transplanted views.
+   *   - `LContainer[HAS_TRANSPLANTED_VIEWS]` which marks which `LContainer` has transplanted views.
    *   - `LContainer[TRANSPLANT_HEAD]` and `LContainer[TRANSPLANT_TAIL]` storage for transplanted
    *   - `LView[DECLARATION_LCONTAINER]` similar problem for queries
    *   - `LContainer[MOVED_VIEWS]` similar problem for queries
@@ -282,6 +292,14 @@ export interface LView extends Array<any> {
    * More flags for this view. See PreOrderHookFlags for more info.
    */
   [PREORDER_HOOK_FLAGS]: PreOrderHookFlags;
+
+  /**
+   * The number of direct transplanted views which need a refresh or have descendants themselves
+   * that need a refresh but have not marked their ancestors as Dirty. This tells us that during
+   * change detection we should still descend to find those children to refresh, even if the parents
+   * are not `Dirty`/`CheckAlways`.
+   */
+  [TRANSPLANTED_VIEWS_TO_REFRESH]: number;
 }
 
 /** Flags associated with an LView (saved in LView[FLAGS]) */
@@ -342,11 +360,17 @@ export const enum LViewFlags {
   IsRoot = 0b001000000000,
 
   /**
-   * Index of the current init phase on last 22 bits
+   * Whether this moved LView was needs to be refreshed at the insertion location because the
+   * declaration was dirty.
    */
-  IndexWithinInitPhaseIncrementer = 0b010000000000,
-  IndexWithinInitPhaseShift = 10,
-  IndexWithinInitPhaseReset = 0b001111111111,
+  RefreshTransplantedView = 0b0010000000000,
+
+  /**
+   * Index of the current init phase on last 21 bits
+   */
+  IndexWithinInitPhaseIncrementer = 0b0100000000000,
+  IndexWithinInitPhaseShift = 11,
+  IndexWithinInitPhaseReset = 0b0011111111111,
 }
 
 /**
@@ -684,6 +708,12 @@ export interface TView {
    * Used for directive matching, attribute bindings, local definitions and more.
    */
   consts: TConstants|null;
+
+  /**
+   * Indicates that there was an error before we managed to complete the first create pass of the
+   * view. This means that the view is likely corrupted and we should try to recover it.
+   */
+  incompleteFirstPass: boolean;
 }
 
 export const enum RootContextFlags {
@@ -805,3 +835,190 @@ export type TData =
 // Note: This hack is necessary so we don't erroneously get a circular dependency
 // failure based on types.
 export const unusedValueExportToPlacateAjd = 1;
+
+/**
+ * Human readable version of the `LView`.
+ *
+ * `LView` is a data structure used internally to keep track of views. The `LView` is designed for
+ * efficiency and so at times it is difficult to read or write tests which assert on its values. For
+ * this reason when `ngDevMode` is true we patch a `LView.debug` property which points to
+ * `LViewDebug` for easier debugging and test writing. It is the intent of `LViewDebug` to be used
+ * in tests.
+ */
+export interface LViewDebug {
+  /**
+   * Flags associated with the `LView` unpacked into a more readable state.
+   *
+   * See `LViewFlags` for the flag meanings.
+   */
+  readonly flags: {
+    initPhaseState: number,
+    creationMode: boolean,
+    firstViewPass: boolean,
+    checkAlways: boolean,
+    dirty: boolean,
+    attached: boolean,
+    destroyed: boolean,
+    isRoot: boolean,
+    indexWithinInitPhase: number,
+  };
+
+  /**
+   * Parent view (or container)
+   */
+  readonly parent: LViewDebug|LContainerDebug|null;
+
+  /**
+   * Next sibling to the `LView`.
+   */
+  readonly next: LViewDebug|LContainerDebug|null;
+
+  /**
+   * The context used for evaluation of the `LView`
+   *
+   * (Usually the component)
+   */
+  readonly context: {}|null;
+
+  /**
+   * Hierarchical tree of nodes.
+   */
+  readonly nodes: DebugNode[];
+
+  /**
+   * HTML representation of the `LView`.
+   *
+   * This is only approximate to actual HTML as child `LView`s are removed.
+   */
+  readonly html: string;
+
+  /**
+   * The host element to which this `LView` is attached.
+   */
+  readonly hostHTML: string|null;
+
+  /**
+   * Child `LView`s
+   */
+  readonly childViews: Array<LViewDebug|LContainerDebug>;
+
+  /**
+   * Sub range of `LView` containing decls (DOM elements).
+   */
+  readonly decls: LViewDebugRange;
+
+  /**
+   * Sub range of `LView` containing vars (bindings).
+   */
+  readonly vars: LViewDebugRange;
+
+  /**
+   * Sub range of `LView` containing i18n (translated DOM elements).
+   */
+  readonly i18n: LViewDebugRange;
+
+  /**
+   * Sub range of `LView` containing expando (used by DI).
+   */
+  readonly expando: LViewDebugRange;
+}
+
+/**
+ * Human readable version of the `LContainer`
+ *
+ * `LContainer` is a data structure used internally to keep track of child views. The `LContainer`
+ * is designed for efficiency and so at times it is difficult to read or write tests which assert on
+ * its values. For this reason when `ngDevMode` is true we patch a `LContainer.debug` property which
+ * points to `LContainerDebug` for easier debugging and test writing. It is the intent of
+ * `LContainerDebug` to be used in tests.
+ */
+export interface LContainerDebug {
+  readonly native: RComment;
+  /**
+   * Child `LView`s.
+   */
+  readonly views: LViewDebug[];
+  readonly parent: LViewDebug|null;
+  readonly movedViews: LView[]|null;
+  readonly host: RElement|RComment|LView;
+  readonly next: LViewDebug|LContainerDebug|null;
+  readonly hasTransplantedViews: boolean;
+}
+
+
+
+/**
+ * `LView` is subdivided to ranges where the actual data is stored. Some of these ranges such as
+ * `decls` and `vars` are known at compile time. Other such as `i18n` and `expando` are runtime only
+ * concepts.
+ */
+export interface LViewDebugRange {
+  /**
+   * The starting index in `LView` where the range begins. (Inclusive)
+   */
+  start: number;
+
+  /**
+   * The ending index in `LView` where the range ends. (Exclusive)
+   */
+  end: number;
+
+  /**
+   * The length of the range
+   */
+  length: number;
+
+  /**
+   * The merged content of the range. `t` contains data from `TView.data` and `l` contains `LView`
+   * data at an index.
+   */
+  content: LViewDebugRangeContent[];
+}
+
+/**
+ * For convenience the static and instance portions of `TView` and `LView` are merged into a single
+ * object in `LViewRange`.
+ */
+export interface LViewDebugRangeContent {
+  /**
+   * Index into original `LView` or `TView.data`.
+   */
+  index: number;
+
+  /**
+   * Value from the `TView.data[index]` location.
+   */
+  t: any;
+
+  /**
+   * Value from the `LView[index]` location.
+   */
+  l: any;
+}
+
+
+/**
+ * A logical node which comprise into `LView`s.
+ *
+ */
+export interface DebugNode {
+  /**
+   * HTML representation of the node.
+   */
+  html: string|null;
+
+  /**
+   * Human readable node type.
+   */
+  type: typeof TNodeTypeAsString[number];
+
+  /**
+   * DOM native node.
+   */
+  native: Node;
+
+  /**
+   * Child nodes
+   */
+  children: DebugNode[];
+}

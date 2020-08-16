@@ -6,6 +6,7 @@ export interface BazelAndG3Options {
 export interface I18nOptions {
     enableI18nLegacyMessageIdFormat?: boolean;
     i18nInLocale?: string;
+    i18nNormalizeLineEndingsInICUs?: boolean;
     i18nUseExternalIds?: boolean;
 }
 
@@ -34,6 +35,7 @@ export interface StrictTemplateOptions {
     strictContextGenerics?: boolean;
     strictDomEventTypes?: boolean;
     strictDomLocalRefTypes?: boolean;
+    strictInputAccessModifiers?: boolean;
     strictInputTypes?: boolean;
     strictLiteralTypes?: boolean;
     strictNullInputTypes?: boolean;

@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -13,7 +13,7 @@ import {assertDefined, assertDomNode, assertEqual, assertString} from '../util/a
 
 import {assertLContainer, assertLView, assertTNodeForLView} from './assert';
 import {attachPatchData} from './context_discovery';
-import {ACTIVE_INDEX, ActiveIndexFlag, CONTAINER_HEADER_OFFSET, LContainer, MOVED_VIEWS, NATIVE, unusedValueExportToPlacateAjd as unused1} from './interfaces/container';
+import {CONTAINER_HEADER_OFFSET, HAS_TRANSPLANTED_VIEWS, LContainer, MOVED_VIEWS, NATIVE, unusedValueExportToPlacateAjd as unused1} from './interfaces/container';
 import {ComponentDef} from './interfaces/definition';
 import {NodeInjectorFactory} from './interfaces/injector';
 import {TElementNode, TNode, TNodeFlags, TNodeType, TProjectionNode, TViewNode, unusedValueExportToPlacateAjd as unused2} from './interfaces/node';
@@ -23,7 +23,7 @@ import {isLContainer, isLView} from './interfaces/type_checks';
 import {CHILD_HEAD, CLEANUP, DECLARATION_COMPONENT_VIEW, DECLARATION_LCONTAINER, DestroyHookData, FLAGS, HookData, HookFn, HOST, LView, LViewFlags, NEXT, PARENT, QUERIES, RENDERER, T_HOST, TVIEW, TView, unusedValueExportToPlacateAjd as unused5} from './interfaces/view';
 import {assertNodeOfPossibleTypes, assertNodeType} from './node_assert';
 import {getLViewParent} from './util/view_traversal_utils';
-import {getNativeByTNode, unwrapRNode} from './util/view_utils';
+import {getNativeByTNode, unwrapRNode, updateTransplantedViewCount} from './util/view_utils';
 
 const unusedValueToPlacateAjd = unused1 + unused2 + unused3 + unused4 + unused5;
 
@@ -270,18 +270,13 @@ function trackMovedView(declarationContainer: LContainer, lView: LView) {
   ngDevMode && assertLContainer(insertedLContainer);
   const insertedComponentLView = insertedLContainer[PARENT]![DECLARATION_COMPONENT_VIEW];
   ngDevMode && assertDefined(insertedComponentLView, 'Missing insertedComponentLView');
-  const insertedComponentIsOnPush =
-      (insertedComponentLView[FLAGS] & LViewFlags.CheckAlways) !== LViewFlags.CheckAlways;
-  if (insertedComponentIsOnPush) {
-    const declaredComponentLView = lView[DECLARATION_COMPONENT_VIEW];
-    ngDevMode && assertDefined(declaredComponentLView, 'Missing declaredComponentLView');
-    if (declaredComponentLView !== insertedComponentLView) {
-      // At this point the declaration-component is not same as insertion-component and we are in
-      // on-push mode, this means that this is a transplanted view. Mark the declared lView as
-      // having
-      // transplanted views so that those views can participate in CD.
-      declarationContainer[ACTIVE_INDEX] |= ActiveIndexFlag.HAS_TRANSPLANTED_VIEWS;
-    }
+  const declaredComponentLView = lView[DECLARATION_COMPONENT_VIEW];
+  ngDevMode && assertDefined(declaredComponentLView, 'Missing declaredComponentLView');
+  if (declaredComponentLView !== insertedComponentLView) {
+    // At this point the declaration-component is not same as insertion-component; this means that
+    // this is a transplanted view. Mark the declared lView as having transplanted views so that
+    // those views can participate in CD.
+    declarationContainer[HAS_TRANSPLANTED_VIEWS] = true;
   }
   if (movedViews === null) {
     declarationContainer[MOVED_VIEWS] = [lView];
@@ -297,8 +292,18 @@ function detachMovedView(declarationContainer: LContainer, lView: LView) {
           declarationContainer[MOVED_VIEWS],
           'A projected view should belong to a non-empty projected views collection');
   const movedViews = declarationContainer[MOVED_VIEWS]!;
-  const declaredViewIndex = movedViews.indexOf(lView);
-  movedViews.splice(declaredViewIndex, 1);
+  const declarationViewIndex = movedViews.indexOf(lView);
+  const insertionLContainer = lView[PARENT] as LContainer;
+  ngDevMode && assertLContainer(insertionLContainer);
+
+  // If the view was marked for refresh but then detached before it was checked (where the flag
+  // would be cleared and the counter decremented), we need to decrement the view counter here
+  // instead.
+  if (lView[FLAGS] & LViewFlags.RefreshTransplantedView) {
+    updateTransplantedViewCount(insertionLContainer, -1);
+  }
+
+  movedViews.splice(declarationViewIndex, 1);
 }
 
 /**
@@ -342,17 +347,6 @@ export function detachView(lContainer: LContainer, removeIndex: number): LView|u
     viewToDetach[FLAGS] &= ~LViewFlags.Attached;
   }
   return viewToDetach;
-}
-
-/**
- * Removes a view from a container, i.e. detaches it and then destroys the underlying LView.
- *
- * @param lContainer The container from which to remove a view
- * @param removeIndex The index of the view to remove
- */
-export function removeView(lContainer: LContainer, removeIndex: number) {
-  const detachedView = detachView(lContainer, removeIndex);
-  detachedView && destroyLView(detachedView[TVIEW], detachedView);
 }
 
 /**
@@ -547,7 +541,7 @@ function getRenderParent(tView: TView, tNode: TNode, currentView: LView): REleme
     } else {
       // We are inserting a root element of the component view into the component host element and
       // it should always be eager.
-      ngDevMode && assertNodeOfPossibleTypes(hostTNode, TNodeType.Element);
+      ngDevMode && assertNodeOfPossibleTypes(hostTNode, [TNodeType.Element]);
       return currentView[HOST];
     }
   } else {
@@ -693,10 +687,10 @@ export function appendChild(
  */
 function getFirstNativeNode(lView: LView, tNode: TNode|null): RNode|null {
   if (tNode !== null) {
-    ngDevMode &&
-        assertNodeOfPossibleTypes(
-            tNode, TNodeType.Element, TNodeType.Container, TNodeType.ElementContainer,
-            TNodeType.IcuContainer, TNodeType.Projection);
+    ngDevMode && assertNodeOfPossibleTypes(tNode, [
+      TNodeType.Element, TNodeType.Container, TNodeType.ElementContainer, TNodeType.IcuContainer,
+      TNodeType.Projection
+    ]);
 
     const tNodeType = tNode.type;
     if (tNodeType === TNodeType.Element) {
@@ -773,10 +767,10 @@ function applyNodes(
     renderParent: RElement|null, beforeNode: RNode|null, isProjection: boolean) {
   while (tNode != null) {
     ngDevMode && assertTNodeForLView(tNode, lView);
-    ngDevMode &&
-        assertNodeOfPossibleTypes(
-            tNode, TNodeType.Container, TNodeType.Element, TNodeType.ElementContainer,
-            TNodeType.Projection, TNodeType.Projection, TNodeType.IcuContainer);
+    ngDevMode && assertNodeOfPossibleTypes(tNode, [
+      TNodeType.Container, TNodeType.Element, TNodeType.ElementContainer, TNodeType.Projection,
+      TNodeType.IcuContainer
+    ]);
     const rawSlotValue = lView[tNode.index];
     const tNodeType = tNode.type;
     if (isProjection) {
@@ -793,7 +787,7 @@ function applyNodes(
         applyProjectionRecursive(
             renderer, action, lView, tNode as TProjectionNode, renderParent, beforeNode);
       } else {
-        ngDevMode && assertNodeOfPossibleTypes(tNode, TNodeType.Element, TNodeType.Container);
+        ngDevMode && assertNodeOfPossibleTypes(tNode, [TNodeType.Element, TNodeType.Container]);
         applyToElementOrContainer(action, renderer, renderParent, rawSlotValue, beforeNode);
       }
     }

@@ -1,18 +1,15 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
  */
 import {KeyValueArray} from '../../util/array_utils';
 import {TStylingRange} from '../interfaces/styling';
-
-import {DirectiveDef} from './definition';
 import {CssSelector} from './projection';
 import {RNode} from './renderer';
 import {LView, TView} from './view';
-
 
 
 /**
@@ -44,6 +41,20 @@ export const enum TNodeType {
    */
   IcuContainer = 5,
 }
+
+/**
+ * Converts `TNodeType` into human readable text.
+ * Make sure this matches with `TNodeType`
+ */
+export const TNodeTypeAsString = [
+  'Container',         // 0
+  'Projection',        // 1
+  'View',              // 2
+  'Element',           // 3
+  'ElementContainer',  // 4
+  'IcuContainer'       // 5
+] as const;
+
 
 /**
  * Corresponds to the TNode.flags property.
@@ -87,14 +98,17 @@ export const enum TNodeFlags {
  * Corresponds to the TNode.providerIndexes property.
  */
 export const enum TNodeProviderIndexes {
-  /** The index of the first provider on this node is encoded on the least significant bits */
-  ProvidersStartIndexMask = 0b00000000000000001111111111111111,
+  /** The index of the first provider on this node is encoded on the least significant bits. */
+  ProvidersStartIndexMask = 0b00000000000011111111111111111111,
 
-  /** The count of view providers from the component on this node is encoded on the 16 most
-     significant bits */
-  CptViewProvidersCountShift = 16,
-  CptViewProvidersCountShifter = 0b00000000000000010000000000000000,
+  /**
+   * The count of view providers from the component on this node is
+   * encoded on the 20 most significant bits.
+   */
+  CptViewProvidersCountShift = 20,
+  CptViewProvidersCountShifter = 0b00000000000100000000000000000000,
 }
+
 /**
  * A set of marker values to be used in the attributes arrays. These markers indicate that some
  * items are not regular attributes and the processing should be adapted accordingly.
@@ -117,21 +131,21 @@ export const enum AttributeMarker {
   NamespaceURI = 0,
 
   /**
-    * Signals class declaration.
-    *
-    * Each value following `Classes` designates a class name to include on the element.
-    * ## Example:
-    *
-    * Given:
-    * ```
-    * <div class="foo bar baz">...<d/vi>
-    * ```
-    *
-    * the generated code is:
-    * ```
-    * var _c1 = [AttributeMarker.Classes, 'foo', 'bar', 'baz'];
-    * ```
-    */
+   * Signals class declaration.
+   *
+   * Each value following `Classes` designates a class name to include on the element.
+   * ## Example:
+   *
+   * Given:
+   * ```
+   * <div class="foo bar baz">...<d/vi>
+   * ```
+   *
+   * the generated code is:
+   * ```
+   * var _c1 = [AttributeMarker.Classes, 'foo', 'bar', 'baz'];
+   * ```
+   */
   Classes = 1,
 
   /**
@@ -235,14 +249,14 @@ export const enum AttributeMarker {
  * - Special markers acting as flags to alter attributes processing.
  * - Parsed ngProjectAs selectors.
  */
-export type TAttributes = (string | AttributeMarker | CssSelector)[];
+export type TAttributes = (string|AttributeMarker|CssSelector)[];
 
 /**
  * Constants that are associated with a view. Includes:
  * - Attribute arrays.
  * - Local definition arrays.
  */
-export type TConstants = (TAttributes | string)[];
+export type TConstants = (TAttributes|string)[];
 
 /**
  * Binding data (flyweight) for a particular node that is shared between all templates
@@ -500,13 +514,29 @@ export interface TNode {
   projection: (TNode|RNode[])[]|number|null;
 
   /**
-   * A collection of all style static values for an element.
+   * A collection of all `style` static values for an element (including from host).
    *
    * This field will be populated if and when:
    *
-   * - There are one or more initial styles on an element (e.g. `<div style="width:200px">`)
+   * - There are one or more initial `style`s on an element (e.g. `<div style="width:200px;">`)
+   * - There are one or more initial `style`s on a directive/component host
+   *   (e.g. `@Directive({host: {style: "width:200px;" } }`)
    */
   styles: string|null;
+
+
+  /**
+   * A collection of all `style` static values for an element excluding host sources.
+   *
+   * Populated when there are one or more initial `style`s on an element
+   * (e.g. `<div style="width:200px;">`)
+   * Must be stored separately from `tNode.styles` to facilitate setting directive
+   * inputs that shadow the `style` property. If we used `tNode.styles` as is for shadowed inputs,
+   * we would feed host styles back into directives as "inputs". If we used `tNode.attrs`, we would
+   * have to concatenate the attributes on every template pass. Instead, we process once on first
+   * create pass and store here.
+   */
+  stylesWithoutHost: string|null;
 
   /**
    * A `KeyValueArray` version of residual `styles`.
@@ -538,13 +568,28 @@ export interface TNode {
   residualStyles: KeyValueArray<any>|undefined|null;
 
   /**
-   * A collection of all class static values for an element.
+   * A collection of all class static values for an element (including from host).
    *
    * This field will be populated if and when:
    *
    * - There are one or more initial classes on an element (e.g. `<div class="one two three">`)
+   * - There are one or more initial classes on an directive/component host
+   *   (e.g. `@Directive({host: {class: "SOME_CLASS" } }`)
    */
   classes: string|null;
+
+  /**
+   * A collection of all class static values for an element excluding host sources.
+   *
+   * Populated when there are one or more initial classes on an element
+   * (e.g. `<div class="SOME_CLASS">`)
+   * Must be stored separately from `tNode.classes` to facilitate setting directive
+   * inputs that shadow the `class` property. If we used `tNode.classes` as is for shadowed inputs,
+   * we would feed host classes back into directives as "inputs". If we used `tNode.attrs`, we would
+   * have to concatenate the attributes on every template pass. Instead, we process once on first
+   * create pass and store here.
+   */
+  classesWithoutHost: string|null;
 
   /**
    * A `KeyValueArray` version of residual `classes`.
@@ -664,11 +709,6 @@ export interface TIcuContainerNode extends TNode {
   parent: TElementNode|TElementContainerNode|null;
   tViews: null;
   projection: null;
-  /**
-   * Indicates the current active case for an ICU expression.
-   * It is null when there is no active case.
-   */
-  activeCaseIndex: number|null;
 }
 
 /** Static data for a view  */
@@ -700,7 +740,7 @@ export interface TProjectionNode extends TNode {
 /**
  * A union type representing all TNode types that can host a directive.
  */
-export type TDirectiveHostNode = TElementNode | TContainerNode | TElementContainerNode;
+export type TDirectiveHostNode = TElementNode|TContainerNode|TElementContainerNode;
 
 /**
  * This mapping is necessary so we can set input properties and output listeners
@@ -725,7 +765,7 @@ export type PropertyAliases = {
  *
  * e.g. [0, 'change-minified']
  */
-export type PropertyAliasValue = (number | string)[];
+export type PropertyAliasValue = (number|string)[];
 
 /**
  * This array contains information about input properties that
@@ -745,7 +785,7 @@ export type PropertyAliasValue = (number | string)[];
  *
  * e.g. [null, ['role-min', 'minified-input', 'button']]
  */
-export type InitialInputData = (InitialInputs | null)[];
+export type InitialInputData = (InitialInputs|null)[];
 
 /**
  * Used by InitialInputData to store input properties
@@ -766,7 +806,7 @@ export const unusedValueExportToPlacateAjd = 1;
 /**
  * Type representing a set of TNodes that can have local refs (`#foo`) placed on them.
  */
-export type TNodeWithLocalRefs = TContainerNode | TElementNode | TElementContainerNode;
+export type TNodeWithLocalRefs = TContainerNode|TElementNode|TElementContainerNode;
 
 /**
  * Type for a function that extracts a value for a local refs.

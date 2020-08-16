@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -270,4 +270,22 @@ export function newArray<T>(size: number, value?: T): T[] {
     list.push(value!);
   }
   return list;
+}
+
+/**
+ * Partitions a given array into 2 arrays, based on a boolean value returned by the condition
+ * function.
+ *
+ * @param arr Input array that should be partitioned
+ * @param conditionFn Condition function that is called for each item in a given array and returns a
+ * boolean value.
+ */
+export function partitionArray<T>(
+    arr: T[], conditionFn: <K extends T>(value: K) => boolean): [T[], T[]] {
+  const truthy: T[] = [];
+  const falsy: T[] = [];
+  arr.forEach(item => {
+    (conditionFn(item) ? truthy : falsy).push(item);
+  });
+  return [truthy, falsy];
 }

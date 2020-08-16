@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -336,9 +336,10 @@ describe('compiler compliance: styling', () => {
           hostVars: 1,
           hostBindings: function MyAnimDir_HostBindings(rf, ctx) {
             if (rf & 1) {
-              $r3$.ɵɵcomponentHostSyntheticListener("@myAnim.start", function MyAnimDir_animation_myAnim_start_HostBindingHandler() { return ctx.onStart(); })("@myAnim.done", function MyAnimDir_animation_myAnim_done_HostBindingHandler() { return ctx.onDone(); });
-            } if (rf & 2) {
-              $r3$.ɵɵupdateSyntheticHostBinding("@myAnim", ctx.myAnimState);
+              $r3$.ɵɵsyntheticHostListener("@myAnim.start", function MyAnimDir_animation_myAnim_start_HostBindingHandler() { return ctx.onStart(); })("@myAnim.done", function MyAnimDir_animation_myAnim_done_HostBindingHandler() { return ctx.onDone(); });
+            }
+            if (rf & 2) {
+              $r3$.ɵɵsyntheticHostProperty("@myAnim", ctx.myAnimState);
             }
           }
           …
@@ -555,7 +556,7 @@ describe('compiler compliance: styling', () => {
                 $r3$.ɵɵelement(0, "div");
               }
               if (rf & 2) {
-                $r3$.ɵɵstyleProp("background-image", ctx.myImage, $r3$.ɵɵdefaultStyleSanitizer);
+                $r3$.ɵɵstyleProp("background-image", ctx.myImage);
               }
             },
             encapsulation: 2
@@ -1151,15 +1152,15 @@ describe('compiler compliance: styling', () => {
         app: {
           'spec.ts': `
                   import {Component, NgModule, HostBinding} from '@angular/core';
-  
+
                   @Component({
                     selector: 'my-component',
                     template: \`
                       <div class="A{{p1}}B"></div>
-                      <div class="A{{p1}}B{{p2}}C"></div> 
-                      <div class="A{{p1}}B{{p2}}C{{p3}}D"></div> 
-                      <div class="A{{p1}}B{{p2}}C{{p3}}D{{p4}}E"></div> 
-                      <div class="A{{p1}}B{{p2}}C{{p3}}D{{p4}}E{{p5}}F"></div> 
+                      <div class="A{{p1}}B{{p2}}C"></div>
+                      <div class="A{{p1}}B{{p2}}C{{p3}}D"></div>
+                      <div class="A{{p1}}B{{p2}}C{{p3}}D{{p4}}E"></div>
+                      <div class="A{{p1}}B{{p2}}C{{p3}}D{{p4}}E{{p5}}F"></div>
                       <div class="A{{p1}}B{{p2}}C{{p3}}D{{p4}}E{{p5}}F{{p6}}G"></div>
                       <div class="A{{p1}}B{{p2}}C{{p3}}D{{p4}}E{{p5}}F{{p6}}G{{p7}}H"></div>
                       <div class="A{{p1}}B{{p2}}C{{p3}}D{{p4}}E{{p5}}F{{p6}}G{{p7}}H{{p8}}I"></div>
@@ -1178,7 +1179,7 @@ describe('compiler compliance: styling', () => {
                     p8 = 100;
                     p9 = 100;
                   }
-  
+
                   @NgModule({declarations: [MyComponent]})
                   export class MyModule {}
               `
@@ -1221,7 +1222,7 @@ describe('compiler compliance: styling', () => {
         app: {
           'spec.ts': `
                   import {Component, NgModule, HostBinding} from '@angular/core';
-  
+
                   @Component({
                     selector: 'my-component',
                     template: \`
@@ -1248,7 +1249,7 @@ describe('compiler compliance: styling', () => {
                     p8 = 100;
                     p9 = 100;
                   }
-  
+
                   @NgModule({declarations: [MyComponent]})
                   export class MyModule {}
               `
@@ -1554,8 +1555,8 @@ describe('compiler compliance: styling', () => {
          const template = `
             …
             if (rf & 2) {
-              $r3$.ɵɵstylePropInterpolate1("background", "url(", ctx.myUrl1, ")", $r3$.ɵɵdefaultStyleSanitizer);
-              $r3$.ɵɵstylePropInterpolate2("border-image", "url(", ctx.myUrl2, ") ", ctx.myRepeat, " auto", $r3$.ɵɵdefaultStyleSanitizer);
+              $r3$.ɵɵstylePropInterpolate1("background", "url(", ctx.myUrl1, ")");
+              $r3$.ɵɵstylePropInterpolate2("border-image", "url(", ctx.myUrl2, ") ", ctx.myRepeat, " auto");
               $r3$.ɵɵstylePropInterpolate3("box-shadow", "", ctx.myBoxX, " ", ctx.myBoxY, " ", ctx.myBoxWidth, " black");
             }
             …
@@ -2036,110 +2037,6 @@ describe('compiler compliance: styling', () => {
   });
 
   describe('new styling refactor', () => {
-    it('should generate a `styleSanitizer` instruction when one or more sanitizable style properties are statically detected',
-       () => {
-         const files = {
-           app: {
-             'spec.ts': `
-            import {Component, NgModule} from '@angular/core';
-
-            @Component({
-              selector: 'my-app',
-              template: \`
-                <div [style.background-image]="bgExp"></div>
-              \`
-            })
-            export class MyAppComp {
-              bgExp = '';
-            }
-          `
-           }
-         };
-
-         const template = `
-        template: function MyAppComp_Template(rf, ctx) {
-          …
-          if (rf & 2) {
-            $r3$.ɵɵstyleProp("background-image", ctx.bgExp, $r3$.ɵɵdefaultStyleSanitizer);
-          }
-          …
-        }
-      `;
-
-         const result = compile(files, angularFiles);
-         expectEmit(result.source, template, 'Incorrect template');
-       });
-
-    it('should generate a `styleSanitizer` instruction when a `styleMap` instruction is used',
-       () => {
-         const files = {
-           app: {
-             'spec.ts': `
-            import {Component, NgModule} from '@angular/core';
-
-            @Component({
-              selector: 'my-app',
-              template: \`
-                <div [style]="mapExp"></div>
-              \`
-            })
-            export class MyAppComp {
-              mapExp = {};
-            }
-          `
-           }
-         };
-
-         const template = `
-        template: function MyAppComp_Template(rf, ctx) {
-          …
-          if (rf & 2) {
-            $r3$.ɵɵstyleMap(ctx.mapExp);
-          }
-          …
-        }
-      `;
-
-         const result = compile(files, angularFiles);
-         expectEmit(result.source, template, 'Incorrect template');
-       });
-
-    it('shouldn\'t generate a `styleSanitizer` instruction when class-based instructions are used',
-       () => {
-         const files = {
-           app: {
-             'spec.ts': `
-            import {Component, NgModule} from '@angular/core';
-
-            @Component({
-              selector: 'my-app',
-              template: \`
-                <div [class]="mapExp" [class.name]="nameExp"></div>
-              \`
-            })
-            export class MyAppComp {
-              mapExp = {};
-              nameExp = true;
-            }
-          `
-           }
-         };
-
-         const template = `
-        template: function MyAppComp_Template(rf, ctx) {
-          …
-          if (rf & 2) {
-            $r3$.ɵɵclassMap(ctx.mapExp);
-            $r3$.ɵɵclassProp("name", ctx.nameExp);
-          }
-          …
-        }
-      `;
-
-         const result = compile(files, angularFiles);
-         expectEmit(result.source, template, 'Incorrect template');
-       });
-
     it('should generate the correct amount of host bindings when styling is present', () => {
       const files = {
         app: {
@@ -2187,7 +2084,7 @@ describe('compiler compliance: styling', () => {
           hostBindings: function MyDir_HostBindings(rf, ctx) {
             if (rf & 2) {
               $r3$.ɵɵhostProperty("title", ctx.title);
-              $r3$.ɵɵupdateSyntheticHostBinding("@anim",
+              $r3$.ɵɵsyntheticHostProperty("@anim",
                 $r3$.ɵɵpureFunction2(7, _c1, ctx._animValue,
                 $r3$.ɵɵpureFunction2(4, _c0, ctx._animParam1, ctx._animParam2)));
               $r3$.ɵɵclassProp("foo", ctx.foo);

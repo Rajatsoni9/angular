@@ -1,13 +1,13 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
  */
-
 import {AttributeMarker} from '@angular/compiler/src/core';
 import {setup} from '@angular/compiler/test/aot/test_util';
+import * as ts from 'typescript';
 
 import {DEFAULT_INTERPOLATION_CONFIG, InterpolationConfig} from '../../../compiler/src/compiler';
 import {decimalDigest} from '../../../compiler/src/i18n/digest';
@@ -124,6 +124,7 @@ const escapeTemplate = (template: string) =>
 
 const getAppFilesWithTemplate = (template: string, args: any = {}) => ({
   app: {
+    'spec.template.html': template,
     'spec.ts': `
       import {Component, NgModule} from '@angular/core';
 
@@ -131,8 +132,9 @@ const getAppFilesWithTemplate = (template: string, args: any = {}) => ({
         selector: 'my-component',
         ${args.preserveWhitespaces ? 'preserveWhitespaces: true,' : ''}
         ${args.interpolation ? 'interpolation: ' + JSON.stringify(args.interpolation) + ', ' : ''}
-        template: \`${escapeTemplate(template)}\`
-      })
+        ${
+        args.templateUrl ? `templateUrl: 'spec.template.html'` :
+                           `template: \`${escapeTemplate(template)}\``})
       export class MyComponent {}
 
       @NgModule({declarations: [MyComponent]})
@@ -337,8 +339,6 @@ describe('i18n support in the template compiler', () => {
         <ng-template i18n-title title="Hello"></ng-template>
       `;
 
-      // TODO (FW-1942): update the code to avoid adding `title` attribute in plain form
-      // into the `consts` array on Component def.
       const output = String.raw`
         var $I18N_0$;
         if (typeof ngI18nClosureMode !== "undefined" && ngI18nClosureMode) {
@@ -350,7 +350,7 @@ describe('i18n support in the template compiler', () => {
         }
         const $_c2$ = ["title", $I18N_0$];
         …
-        consts: [["title", "Hello"]],
+        consts: [[${AttributeMarker.I18n}, "title"]],
         template: function MyComponent_Template(rf, ctx) {
           if (rf & 1) {
             $r3$.ɵɵtemplate(0, MyComponent_ng_template_0_Template, 0, 0, "ng-template", 0);
@@ -367,8 +367,6 @@ describe('i18n support in the template compiler', () => {
             <ng-template *ngIf="visible" i18n-title title="Hello">Test</ng-template>
           `;
 
-         // TODO (FW-1942): update the code to avoid adding `title` attribute in plain form
-         // into the `consts` array on Component def.
          const output = String.raw`
             var $I18N_0$;
             if (typeof ngI18nClosureMode !== "undefined" && ngI18nClosureMode) {
@@ -391,7 +389,7 @@ describe('i18n support in the template compiler', () => {
               }
             }
             …
-            consts: [[${AttributeMarker.Template}, "ngIf"], ["title", "Hello"]],
+            consts: [[${AttributeMarker.Template}, "ngIf"], [${AttributeMarker.I18n}, "title"]],
             template: function MyComponent_Template(rf, ctx) {
               if (rf & 1) {
                 $r3$.ɵɵtemplate(0, MyComponent_0_Template, 2, 0, undefined, 0);
@@ -807,8 +805,7 @@ describe('i18n support in the template compiler', () => {
           }
           if (rf & 2) {
               var $tmp_0_0$ = null;
-              const $currVal_0$ = ($tmp_0_0$ = ctx.valueA.getRawValue()) == null ? null : $tmp_0_0$.getTitle();
-              $r3$.ɵɵi18nExp($currVal_0$);
+              $r3$.ɵɵi18nExp(($tmp_0_0$ = ctx.valueA.getRawValue()) == null ? null : $tmp_0_0$.getTitle());
               $r3$.ɵɵi18nApply(1);
           }
         }
@@ -1322,9 +1319,8 @@ describe('i18n support in the template compiler', () => {
           }
           if (rf & 2) {
             var $tmp_2_0$ = null;
-            const $currVal_2$ = ($tmp_2_0$ = ctx.valueA.getRawValue()) == null ? null : $tmp_2_0$.getTitle();
             $r3$.ɵɵadvance(2);
-            $r3$.ɵɵi18nExp($r3$.ɵɵpipeBind1(2, 3, ctx.valueA))(ctx.valueA == null ? null : ctx.valueA.a == null ? null : ctx.valueA.a.b)($currVal_2$);
+            $r3$.ɵɵi18nExp($r3$.ɵɵpipeBind1(2, 3, ctx.valueA))(ctx.valueA == null ? null : ctx.valueA.a == null ? null : ctx.valueA.a.b)(($tmp_2_0$ = ctx.valueA.getRawValue()) == null ? null : $tmp_2_0$.getTitle());
             $r3$.ɵɵi18nApply(1);
           }
         }
@@ -3663,6 +3659,39 @@ describe('i18n support in the template compiler', () => {
 
       verify(input, output);
     });
+
+    it('should produce proper messages when `select` or `plural` keywords have spaces after them',
+       () => {
+         const input = `
+            <div i18n>
+              {count, select , 1 {one} other {more than one}}
+              {count, plural , =1 {one} other {more than one}}
+            </div>
+          `;
+
+         const output = String.raw`
+            var $I18N_1$;
+            if (typeof ngI18nClosureMode !== "undefined" && ngI18nClosureMode) {
+                const $MSG_EXTERNAL_199763560911211963$$APP_SPEC_TS_2$ = goog.getMsg("{VAR_SELECT , select , 1 {one} other {more than one}}");
+                $I18N_1$ = $MSG_EXTERNAL_199763560911211963$$APP_SPEC_TS_2$;
+            }
+            else {
+                $I18N_1$ = $localize \`{VAR_SELECT , select , 1 {one} other {more than one}}\`;
+            }
+            $I18N_1$ = i0.ɵɵi18nPostprocess($I18N_1$, { "VAR_SELECT": "\uFFFD0\uFFFD" });
+            var $I18N_3$;
+            if (typeof ngI18nClosureMode !== "undefined" && ngI18nClosureMode) {
+                const $MSG_EXTERNAL_3383986062053865025$$APP_SPEC_TS_4$ = goog.getMsg("{VAR_PLURAL , plural , =1 {one} other {more than one}}");
+                $I18N_3$ = $MSG_EXTERNAL_3383986062053865025$$APP_SPEC_TS_4$;
+            }
+            else {
+                $I18N_3$ = $localize \`{VAR_PLURAL , plural , =1 {one} other {more than one}}\`;
+            }
+            $I18N_3$ = i0.ɵɵi18nPostprocess($I18N_3$, { "VAR_PLURAL": "\uFFFD1\uFFFD" });
+          `;
+
+         verify(input, output);
+       });
   });
 
   describe('$localize legacy message ids', () => {
@@ -3694,6 +3723,89 @@ describe('i18n support in the template compiler', () => {
         `;
 
       verify(input, output, {compilerOptions: {enableI18nLegacyMessageIdFormat: undefined}});
+    });
+  });
+
+  describe('line ending normalization', () => {
+    [true, false].forEach(
+        templateUrl => describe(templateUrl ? '[templateUrl]' : '[inline template]', () => {
+          [true, false, undefined].forEach(
+              i18nNormalizeLineEndingsInICUs => describe(
+                  `{i18nNormalizeLineEndingsInICUs: ${i18nNormalizeLineEndingsInICUs}}`, () => {
+                    it('should normalize line endings in templates', () => {
+                      const input =
+                          `<div title="abc\r\ndef" i18n-title i18n>\r\nSome Message\r\n{\r\n  value,\r\n  select,\r\n  =0 {\r\n    zero\r\n  }\r\n}</div>`;
+
+                      const output = String.raw`
+        $I18N_0$ = $localize \`abc
+def\`;
+        …
+        $I18N_4$ = $localize \`{VAR_SELECT, select, =0 {zero
+  }}\`
+        …
+        $I18N_3$ = $localize \`
+Some Message
+$` + String.raw`{$I18N_4$}:ICU:\`;
+        `;
+
+                      verify(input, output, {
+                        inputArgs: {templateUrl},
+                        compilerOptions: {i18nNormalizeLineEndingsInICUs}
+                      });
+                    });
+
+                    it('should compute the correct message id for messages', () => {
+                      const input =
+                          `<div title="abc\r\ndef" i18n-title i18n>\r\nSome Message\r\n{\r\n  value,\r\n  select,\r\n  =0 {\r\n    zero\r\n  }\r\n}</div>`;
+
+                      // The ids generated by the compiler are different if the template is external
+                      // and we are not explicitly normalizing the line endings.
+                      const ICU_EXPRESSION_ID =
+                          templateUrl && i18nNormalizeLineEndingsInICUs !== true ?
+                          `␟70a685282be2d956e4db234fa3d985970672faa0` :
+                          `␟b5fe162f4e47ab5b3e534491d30b715e0dff0f52`;
+                      const ICU_ID = templateUrl && i18nNormalizeLineEndingsInICUs !== true ?
+                          `␟6a55b51b9bcf8f84b1b868c585ae09949668a72b` :
+                          `␟e31c7bc4db2f2e56dc40f005958055a02fd43a2e`;
+
+                      const output =
+                          String.raw`
+        $I18N_0$ = $localize \`:␟4f9ce2c66b187afd9898b25f6336d1eb2be8b5dc␟7326958852138509669:abc
+def\`;
+        …
+        $I18N_4$ = $localize \`:${
+                              ICU_EXPRESSION_ID}␟4863953183043480207:{VAR_SELECT, select, =0 {zero
+  }}\`
+        …
+        $I18N_3$ = $localize \`:${ICU_ID}␟2773178924738647105:
+Some Message
+$` + String.raw`{$I18N_4$}:ICU:\`;
+        `;
+
+                      verify(input, output, {
+                        inputArgs: {templateUrl},
+                        compilerOptions:
+                            {i18nNormalizeLineEndingsInICUs, enableI18nLegacyMessageIdFormat: true}
+                      });
+                    });
+                  }));
+        }));
+  });
+
+  describe('es5 support', () => {
+    it('should generate ES5 compliant localized messages if the target is ES5', () => {
+      const input = `
+        <div i18n="meaning:A|descA@@idA">Content A</div>
+      `;
+
+      const output = String.raw`
+        var $I18N_0$;
+        …
+        $I18N_0$ = $localize(…__makeTemplateObject([":meaning:A|descA@@idA:Content A"], [":meaning\\:A|descA@@idA:Content A"])…);
+      `;
+
+      verify(
+          input, output, {skipIdBasedCheck: true, compilerOptions: {target: ts.ScriptTarget.ES5}});
     });
   });
 
@@ -3749,6 +3861,104 @@ describe('i18n support in the template compiler', () => {
         verifyNestedSectionsError(
             error, '[ERROR ->]<ng-container i18n>Some content</ng-container>');
       }
+    });
+  });
+
+  describe('namespaces', () => {
+    it('should handle namespaces inside i18n blocks', () => {
+      const input = `
+        <svg xmlns="http://www.w3.org/2000/svg">
+          <foreignObject i18n>
+            <xhtml:div xmlns="http://www.w3.org/1999/xhtml">
+              Count: <span>5</span>
+            </xhtml:div>
+          </foreignObject>
+        </svg>
+      `;
+
+      const output = String.raw`
+        var $I18N_0$;
+        if (typeof ngI18nClosureMode !== "undefined" && ngI18nClosureMode) {
+          const $MSG_EXTERNAL_7128002169381370313$$APP_SPEC_TS_1$ = goog.getMsg("{$startTagXhtmlDiv} Count: {$startTagXhtmlSpan}5{$closeTagXhtmlSpan}{$closeTagXhtmlDiv}", {
+            "startTagXhtmlDiv": "\uFFFD#3\uFFFD",
+            "startTagXhtmlSpan": "\uFFFD#4\uFFFD",
+            "closeTagXhtmlSpan": "\uFFFD/#4\uFFFD",
+            "closeTagXhtmlDiv": "\uFFFD/#3\uFFFD"
+          });
+          $I18N_0$ = $MSG_EXTERNAL_7128002169381370313$$APP_SPEC_TS_1$;
+        }
+        else {
+          $I18N_0$ = $localize \`$` +
+          String.raw`{"\uFFFD#3\uFFFD"}:START_TAG__XHTML_DIV: Count: $` +
+          String.raw`{"\uFFFD#4\uFFFD"}:START_TAG__XHTML_SPAN:5$` +
+          String.raw`{"\uFFFD/#4\uFFFD"}:CLOSE_TAG__XHTML_SPAN:$` +
+          String.raw`{"\uFFFD/#3\uFFFD"}:CLOSE_TAG__XHTML_DIV:\`;
+        }
+        …
+        function MyComponent_Template(rf, ctx) {
+          if (rf & 1) {
+            $r3$.ɵɵnamespaceSVG();
+            $r3$.ɵɵelementStart(0, "svg", 0);
+            $r3$.ɵɵelementStart(1, "foreignObject");
+            $r3$.ɵɵi18nStart(2, $I18N_0$);
+            $r3$.ɵɵnamespaceHTML();
+            $r3$.ɵɵelementStart(3, "div", 1);
+            $r3$.ɵɵelement(4, "span");
+            $r3$.ɵɵelementEnd();
+            $r3$.ɵɵi18nEnd();
+            $r3$.ɵɵelementEnd();
+            $r3$.ɵɵelementEnd();
+          }
+        }
+      `;
+
+      verify(input, output);
+    });
+
+    it('should handle namespaces on i18n block containers', () => {
+      const input = `
+        <svg xmlns="http://www.w3.org/2000/svg">
+          <foreignObject>
+            <xhtml:div xmlns="http://www.w3.org/1999/xhtml" i18n>
+              Count: <span>5</span>
+            </xhtml:div>
+          </foreignObject>
+        </svg>
+      `;
+
+      const output = String.raw`
+        var $I18N_0$;
+        if (typeof ngI18nClosureMode !== "undefined" && ngI18nClosureMode) {
+          const $MSG_EXTERNAL_7428861019045796010$$APP_SPEC_TS_1$ = goog.getMsg(" Count: {$startTagXhtmlSpan}5{$closeTagXhtmlSpan}", {
+            "startTagXhtmlSpan": "\uFFFD#4\uFFFD",
+            "closeTagXhtmlSpan": "\uFFFD/#4\uFFFD"
+          });
+          $I18N_0$ = $MSG_EXTERNAL_7428861019045796010$$APP_SPEC_TS_1$;
+        }
+        else {
+          $I18N_0$ = $localize \` Count: $` +
+          String.raw`{"\uFFFD#4\uFFFD"}:START_TAG__XHTML_SPAN:5$` +
+          String.raw`{"\uFFFD/#4\uFFFD"}:CLOSE_TAG__XHTML_SPAN:\`;
+        }
+        …
+        function MyComponent_Template(rf, ctx) {
+          if (rf & 1) {
+            $r3$.ɵɵnamespaceSVG();
+            $r3$.ɵɵelementStart(0, "svg", 0);
+            $r3$.ɵɵelementStart(1, "foreignObject");
+            $r3$.ɵɵnamespaceHTML();
+            $r3$.ɵɵelementStart(2, "div", 1);
+            $r3$.ɵɵi18nStart(3, $I18N_0$);
+            $r3$.ɵɵelement(4, "span");
+            $r3$.ɵɵi18nEnd();
+            $r3$.ɵɵelementEnd();
+            $r3$.ɵɵelementEnd();
+            $r3$.ɵɵelementEnd();
+          }
+        }
+      `;
+
+      verify(input, output, {verbose: true});
     });
   });
 });

@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -9,8 +9,9 @@
 import * as ts from 'typescript';
 
 import {ErrorCode, ngErrorCode} from '../../src/ngtsc/diagnostics';
-import {absoluteFrom as _, getFileSystem} from '../../src/ngtsc/file_system';
+import {absoluteFrom as _, getFileSystem, getSourceFileOrError} from '../../src/ngtsc/file_system';
 import {runInEachFileSystem} from '../../src/ngtsc/file_system/testing';
+import {expectCompleteReuse} from '../../src/ngtsc/testing';
 import {loadStandardTestFiles} from '../helpers/src/mock_file_loading';
 
 import {NgtscTestEnvironment} from './env';
@@ -71,7 +72,7 @@ export declare class NgIf<T = unknown> {
   ngIfThen: TemplateRef<NgIfContext<T>> | null;
   constructor(_viewContainer: ViewContainerRef, templateRef: TemplateRef<NgIfContext<T>>);
   static ngTemplateGuard_ngIf: 'binding';
-  static ngTemplateContextGuard<T>(dir: NgIf<T>, ctx: any): ctx is NgIfContext<NonNullable<T>>;
+  static ngTemplateContextGuard<T>(dir: NgIf<T>, ctx: any): ctx is NgIfContext<Exclude<T, false | 0 | "" | null | undefined>>;
   static ɵdir: i0.ɵɵDirectiveDefWithMeta<NgIf<any>, '[ngIf]', never, {'ngIf': 'ngIf'}, {}, never>;
 }
 
@@ -135,10 +136,41 @@ export declare class AnimationEvent {
 
       const diags = env.driveDiagnostics();
       expect(diags.length).toBe(1);
-      expect(diags[0].messageText).toEqual(`Type 'string' is not assignable to type 'number'.`);
+      expect(diags[0].messageText).toEqual(`Type '"2"' is not assignable to type 'number'.`);
       // The reported error code should be in the TS error space, not a -99 "NG" code.
       expect(diags[0].code).toBeGreaterThan(0);
     });
+
+    it('should produce diagnostics when mapping to multiple fields and bound types are incorrect',
+       () => {
+         env.tsconfig(
+             {fullTemplateTypeCheck: true, strictInputTypes: true, strictAttributeTypes: true});
+         env.write('test.ts', `
+        import {Component, Directive, NgModule, Input} from '@angular/core';
+
+        @Component({
+          selector: 'test',
+          template: '<div dir foo="2"></div>',
+        })
+        class TestCmp {}
+
+        @Directive({selector: '[dir]'})
+        class TestDir {
+          @Input('foo') foo1: number;
+          @Input('foo') foo2: number;
+        }
+
+        @NgModule({
+          declarations: [TestCmp, TestDir],
+        })
+        class Module {}
+      `);
+
+         const diags = env.driveDiagnostics();
+         expect(diags.length).toBe(2);
+         expect(diags[0].messageText).toEqual(`Type '"2"' is not assignable to type 'number'.`);
+         expect(diags[1].messageText).toEqual(`Type '"2"' is not assignable to type 'number'.`);
+       });
 
     it('should support inputs and outputs with names that are not JavaScript identifiers', () => {
       env.tsconfig(
@@ -172,7 +204,7 @@ export declare class AnimationEvent {
 
       const diags = env.driveDiagnostics();
       expect(diags.length).toBe(2);
-      expect(diags[0].messageText).toEqual(`Type 'number' is not assignable to type 'string'.`);
+      expect(diags[0].messageText).toEqual(`Type '2' is not assignable to type 'string'.`);
       expect(diags[1].messageText)
           .toEqual(`Argument of type 'string' is not assignable to parameter of type 'number'.`);
     });
@@ -348,7 +380,7 @@ export declare class AnimationEvent {
 
         const diags = env.driveDiagnostics();
         expect(diags.length).toBe(2);
-        expect(diags[0].messageText).toEqual(`Type 'number' is not assignable to type 'string'.`);
+        expect(diags[0].messageText).toEqual(`Type '1' is not assignable to type 'string'.`);
         expect(diags[1].messageText)
             .toEqual(`Property 'invalid' does not exist on type 'TestCmp'.`);
       });
@@ -358,7 +390,7 @@ export declare class AnimationEvent {
 
         const diags = env.driveDiagnostics();
         expect(diags.length).toBe(2);
-        expect(diags[0].messageText).toEqual(`Type 'number' is not assignable to type 'string'.`);
+        expect(diags[0].messageText).toEqual(`Type '1' is not assignable to type 'string'.`);
         expect(diags[1].messageText)
             .toEqual(`Property 'invalid' does not exist on type 'TestCmp'.`);
       });
@@ -684,8 +716,8 @@ export declare class AnimationEvent {
 
         const diags = env.driveDiagnostics();
         expect(diags.length).toBe(2);
-        expect(diags[0].messageText).toEqual(`Type 'string' is not assignable to type 'boolean'.`);
-        expect(diags[1].messageText).toEqual(`Type 'string' is not assignable to type 'number'.`);
+        expect(diags[0].messageText).toEqual(`Type '""' is not assignable to type 'boolean'.`);
+        expect(diags[1].messageText).toEqual(`Type '"3"' is not assignable to type 'number'.`);
       });
 
       it('should produce an error for text attributes when overall strictness is enabled', () => {
@@ -693,8 +725,8 @@ export declare class AnimationEvent {
 
         const diags = env.driveDiagnostics();
         expect(diags.length).toBe(2);
-        expect(diags[0].messageText).toEqual(`Type 'string' is not assignable to type 'boolean'.`);
-        expect(diags[1].messageText).toEqual(`Type 'string' is not assignable to type 'number'.`);
+        expect(diags[0].messageText).toEqual(`Type '""' is not assignable to type 'boolean'.`);
+        expect(diags[1].messageText).toEqual(`Type '"3"' is not assignable to type 'number'.`);
       });
 
       it('should not produce an error for text attributes when not enabled', () => {
@@ -817,7 +849,7 @@ export declare class AnimationEvent {
       template: '<div *ngIf="user; let u">{{u.name}}</div>',
     })
     class TestCmp {
-      user: {name: string}|null;
+      user: {name: string}|null|false;
     }
 
     @NgModule({
@@ -841,7 +873,7 @@ export declare class AnimationEvent {
       template: '<div *ngIf="user as u">{{u.name}}</div>',
     })
     class TestCmp {
-      user: {name: string}|null;
+      user: {name: string}|null|false;
     }
 
     @NgModule({
@@ -902,8 +934,7 @@ export declare class AnimationEvent {
       expect(diags.length).toBe(1);
       expect(diags[0].messageText)
           .toEqual(`Property 'does_not_exist' does not exist on type '{ name: string; }'.`);
-      expect(diags[0].start).toBe(199);
-      expect(diags[0].length).toBe(19);
+      expect(getSourceCodeForDiagnostic(diags[0])).toBe('does_not_exist');
     });
 
     it('should accept an NgFor iteration over an any-typed value', () => {
@@ -1126,8 +1157,7 @@ export declare class AnimationEvent {
       const diags = env.driveDiagnostics();
       expect(diags.length).toBe(1);
       expect(diags[0].messageText).toEqual(`Property 'does_not_exist' does not exist on type 'T'.`);
-      expect(diags[0].start).toBe(206);
-      expect(diags[0].length).toBe(19);
+      expect(getSourceCodeForDiagnostic(diags[0])).toBe('does_not_exist');
     });
 
     describe('microsyntax variables', () => {
@@ -1213,9 +1243,9 @@ export declare class AnimationEvent {
       expect(diags.length).toBe(3);
       expect(diags[0].messageText).toBe(`Type 'true' is not assignable to type 'number'.`);
       expect(getSourceCodeForDiagnostic(diags[0])).toEqual('[fromAbstract]="true"');
-      expect(diags[1].messageText).toBe(`Type 'number' is not assignable to type 'string'.`);
+      expect(diags[1].messageText).toBe(`Type '3' is not assignable to type 'string'.`);
       expect(getSourceCodeForDiagnostic(diags[1])).toEqual('[fromBase]="3"');
-      expect(diags[2].messageText).toBe(`Type 'number' is not assignable to type 'boolean'.`);
+      expect(diags[2].messageText).toBe(`Type '4' is not assignable to type 'boolean'.`);
       expect(getSourceCodeForDiagnostic(diags[2])).toEqual('[fromChild]="4"');
     });
 
@@ -1270,9 +1300,9 @@ export declare class AnimationEvent {
       expect(diags.length).toBe(3);
       expect(diags[0].messageText).toBe(`Type 'true' is not assignable to type 'number'.`);
       expect(getSourceCodeForDiagnostic(diags[0])).toEqual('[fromAbstract]="true"');
-      expect(diags[1].messageText).toBe(`Type 'number' is not assignable to type 'string'.`);
+      expect(diags[1].messageText).toBe(`Type '3' is not assignable to type 'string'.`);
       expect(getSourceCodeForDiagnostic(diags[1])).toEqual('[fromBase]="3"');
-      expect(diags[2].messageText).toBe(`Type 'number' is not assignable to type 'boolean'.`);
+      expect(diags[2].messageText).toBe(`Type '4' is not assignable to type 'boolean'.`);
       expect(getSourceCodeForDiagnostic(diags[2])).toEqual('[fromChild]="4"');
     });
 
@@ -1477,7 +1507,7 @@ export declare class AnimationEvent {
       it('should give an error if the binding expression type is not accepted by the coercion function',
          () => {
            env.write('test.ts', `
-            import {Component, NgModule} from '@angular/core';
+            import {Component, NgModule, Input, Directive} from '@angular/core';
             import {MatInputModule} from '@angular/material';
 
             @Component({
@@ -1499,6 +1529,298 @@ export declare class AnimationEvent {
            expect(diags[0].messageText)
                .toBe(`Type 'boolean' is not assignable to type 'string | number'.`);
          });
+
+      it('should give an error for undefined bindings into regular inputs when coercion members are present',
+         () => {
+           env.tsconfig({strictTemplates: true});
+           env.write('test.ts', `
+            import {Component, Directive, NgModule, Input} from '@angular/core';
+
+            @Component({
+              selector: 'blah',
+              template: '<input dir [regular]="undefined" [coerced]="1">',
+            })
+            export class FooCmp {
+              invalidType = true;
+            }
+
+            @Directive({selector: '[dir]'})
+            export class CoercionDir {
+              @Input() regular: string;
+              @Input() coerced: boolean;
+
+              static ngAcceptInputType_coerced: boolean|number;
+            }
+
+            @NgModule({
+              declarations: [FooCmp, CoercionDir],
+            })
+            export class FooModule {}
+        `);
+           const diags = env.driveDiagnostics();
+           expect(diags.length).toBe(1);
+           expect(diags[0].messageText)
+               .toBe(`Type 'undefined' is not assignable to type 'string'.`);
+         });
+    });
+
+    describe('restricted inputs', () => {
+      const directiveDeclaration = `
+            @Directive({selector: '[dir]'})
+            export class TestDir {
+              @Input()
+              protected protectedField!: string;
+              @Input()
+              private privateField!: string;
+              @Input()
+              readonly readonlyField!: string;
+            }
+      `;
+
+      const correctTypeInputsToRestrictedFields = `
+            import {Component, NgModule, Input, Directive} from '@angular/core';
+
+            @Component({
+              selector: 'blah',
+              template: '<div dir [readonlyField]="value" [protectedField]="value" [privateField]="value"></div>',
+            })
+            export class FooCmp {
+              value = "value";
+            }
+
+            ${directiveDeclaration}
+
+            @NgModule({
+              declarations: [FooCmp, TestDir],
+            })
+            export class FooModule {}
+        `;
+
+      const correctInputsToRestrictedFieldsFromBaseClass = `
+            import {Component, NgModule, Input, Directive} from '@angular/core';
+
+            @Component({
+              selector: 'blah',
+              template: '<div child-dir [readonlyField]="value" [protectedField]="value" [privateField]="value"></div>',
+            })
+            export class FooCmp {
+              value = "value";
+            }
+
+            ${directiveDeclaration}
+
+            @Directive({selector: '[child-dir]'})
+            export class ChildDir extends TestDir {
+            }
+
+            @NgModule({
+              declarations: [FooCmp, ChildDir],
+            })
+            export class FooModule {}
+        `;
+      describe('with strictInputAccessModifiers', () => {
+        beforeEach(() => {
+          env.tsconfig({
+            fullTemplateTypeCheck: true,
+            strictInputTypes: true,
+            strictInputAccessModifiers: true
+          });
+        });
+
+        it('should produce diagnostics for inputs which assign to readonly, private, and protected fields',
+           () => {
+             env.write('test.ts', correctTypeInputsToRestrictedFields);
+             expectIllegalAssignmentErrors(env.driveDiagnostics());
+           });
+
+        it('should produce diagnostics for inputs which assign to readonly, private, and protected fields inherited from a base class',
+           () => {
+             env.write('test.ts', correctInputsToRestrictedFieldsFromBaseClass);
+             expectIllegalAssignmentErrors(env.driveDiagnostics());
+           });
+
+        function expectIllegalAssignmentErrors(diags: ReadonlyArray<ts.Diagnostic>) {
+          expect(diags.length).toBe(3);
+          const actualMessages = diags.map(d => d.messageText).sort();
+          const expectedMessages = [
+            `Property 'protectedField' is protected and only accessible within class 'TestDir' and its subclasses.`,
+            `Property 'privateField' is private and only accessible within class 'TestDir'.`,
+            `Cannot assign to 'readonlyField' because it is a read-only property.`,
+          ].sort();
+          expect(actualMessages).toEqual(expectedMessages);
+        }
+
+        it('should report invalid type assignment when field name is not a valid JS identifier',
+           () => {
+             env.write('test.ts', `
+            import {Component, NgModule, Input, Directive} from '@angular/core';
+
+            @Component({
+              selector: 'blah',
+              template: '<div dir [private-input.xs]="value"></div>',
+            })
+            export class FooCmp {
+              value = 5;
+            }
+
+            @Directive({selector: '[dir]'})
+            export class TestDir {
+              @Input()
+              private 'private-input.xs'!: string;
+            }
+
+            @NgModule({
+              declarations: [FooCmp, TestDir],
+            })
+            export class FooModule {}
+          `);
+             const diags = env.driveDiagnostics();
+             expect(diags.length).toBe(1);
+             expect(diags[0].messageText)
+                 .toEqual(`Type 'number' is not assignable to type 'string'.`);
+           });
+      });
+
+      describe('with strict inputs', () => {
+        beforeEach(() => {
+          env.tsconfig({fullTemplateTypeCheck: true, strictInputTypes: true});
+        });
+
+        it('should not produce diagnostics for correct inputs which assign to readonly, private, or protected fields',
+           () => {
+             env.write('test.ts', correctTypeInputsToRestrictedFields);
+             const diags = env.driveDiagnostics();
+             expect(diags.length).toBe(0);
+           });
+
+        it('should not produce diagnostics for correct inputs which assign to readonly, private, or protected fields inherited from a base class',
+           () => {
+             env.write('test.ts', correctInputsToRestrictedFieldsFromBaseClass);
+             const diags = env.driveDiagnostics();
+             expect(diags.length).toBe(0);
+           });
+
+        it('should produce diagnostics when assigning incorrect type to readonly, private, or protected fields',
+           () => {
+             env.write('test.ts', `
+            import {Component, NgModule, Input, Directive} from '@angular/core';
+
+            @Component({
+              selector: 'blah',
+              template: '<div dir [readonlyField]="value" [protectedField]="value" [privateField]="value"></div>',
+            })
+            export class FooCmp {
+              value = 1;
+            }
+
+            ${directiveDeclaration}
+
+            @NgModule({
+              declarations: [FooCmp, TestDir],
+            })
+            export class FooModule {}
+        `);
+             const diags = env.driveDiagnostics();
+             expect(diags.length).toBe(3);
+             expect(diags[0].messageText)
+                 .toEqual(`Type 'number' is not assignable to type 'string'.`);
+             expect(diags[1].messageText)
+                 .toEqual(`Type 'number' is not assignable to type 'string'.`);
+             expect(diags[2].messageText)
+                 .toEqual(`Type 'number' is not assignable to type 'string'.`);
+           });
+      });
+    });
+
+    it('should not produce diagnostics for undeclared inputs', () => {
+      env.tsconfig({fullTemplateTypeCheck: true, strictInputTypes: true});
+      env.write('test.ts', `
+            import {Component, NgModule, Input, Directive} from '@angular/core';
+
+            @Component({
+              selector: 'blah',
+              template: '<div dir [undeclared]="value"></div>',
+            })
+            export class FooCmp {
+              value = "value";
+            }
+
+            @Directive({
+              selector: '[dir]',
+              inputs: ['undeclared'],
+            })
+            export class TestDir {
+            }
+
+            @NgModule({
+              declarations: [FooCmp, TestDir],
+            })
+            export class FooModule {}
+        `);
+      const diags = env.driveDiagnostics();
+      expect(diags.length).toBe(0);
+    });
+
+    it('should produce diagnostics for invalid expressions when assigned into an undeclared input',
+       () => {
+         env.tsconfig({fullTemplateTypeCheck: true, strictInputTypes: true});
+         env.write('test.ts', `
+            import {Component, NgModule, Input, Directive} from '@angular/core';
+
+            @Component({
+              selector: 'blah',
+              template: '<div dir [undeclared]="value"></div>',
+            })
+            export class FooCmp {
+            }
+
+            @Directive({
+              selector: '[dir]',
+              inputs: ['undeclared'],
+            })
+            export class TestDir {
+            }
+
+            @NgModule({
+              declarations: [FooCmp, TestDir],
+            })
+            export class FooModule {}
+        `);
+         const diags = env.driveDiagnostics();
+         expect(diags.length).toBe(1);
+         expect(diags[0].messageText).toBe(`Property 'value' does not exist on type 'FooCmp'.`);
+       });
+
+    it('should not produce diagnostics for undeclared inputs inherited from a base class', () => {
+      env.tsconfig({fullTemplateTypeCheck: true, strictInputTypes: true});
+      env.write('test.ts', `
+            import {Component, NgModule, Input, Directive} from '@angular/core';
+
+            @Component({
+              selector: 'blah',
+              template: '<div dir [undeclaredBase]="value"></div>',
+            })
+            export class FooCmp {
+              value = "value";
+            }
+
+            @Directive({
+              inputs: ['undeclaredBase'],
+            })
+            export class BaseDir {
+            }
+
+            @Directive({selector: '[dir]'})
+            export class TestDir extends BaseDir {
+            }
+
+            @NgModule({
+              declarations: [FooCmp, TestDir],
+            })
+            export class FooModule {}
+        `);
+      const diags = env.driveDiagnostics();
+      expect(diags.length).toBe(0);
     });
 
     describe('legacy schema checking with the DOM schema', () => {
@@ -1752,7 +2074,7 @@ export declare class AnimationEvent {
           const diags = await driveDiagnostics();
           expect(diags.length).toBe(1);
           expect(diags[0].file!.fileName).toBe(_('/test.ts'));
-          expect(getSourceCodeForDiagnostic(diags[0])).toBe('user.does_not_exist');
+          expect(getSourceCodeForDiagnostic(diags[0])).toBe('does_not_exist');
         });
 
         it('should be correct for indirect templates', async () => {
@@ -1774,7 +2096,7 @@ export declare class AnimationEvent {
           const diags = await driveDiagnostics();
           expect(diags.length).toBe(1);
           expect(diags[0].file!.fileName).toBe(_('/test.ts') + ' (TestCmp template)');
-          expect(getSourceCodeForDiagnostic(diags[0])).toBe('user.does_not_exist');
+          expect(getSourceCodeForDiagnostic(diags[0])).toBe('does_not_exist');
           expect(getSourceCodeForDiagnostic(diags[0].relatedInformation![0])).toBe('TEMPLATE');
         });
 
@@ -1797,7 +2119,7 @@ export declare class AnimationEvent {
           const diags = await driveDiagnostics();
           expect(diags.length).toBe(1);
           expect(diags[0].file!.fileName).toBe(_('/template.html'));
-          expect(getSourceCodeForDiagnostic(diags[0])).toBe('user.does_not_exist');
+          expect(getSourceCodeForDiagnostic(diags[0])).toBe('does_not_exist');
           expect(getSourceCodeForDiagnostic(diags[0].relatedInformation![0]))
               .toBe(`'./template.html'`);
         });
@@ -1837,6 +2159,54 @@ export declare class AnimationEvent {
            const diags = env.driveDiagnostics();
            expect(diags.length).toBe(0);
          });
+    });
+
+    describe('stability', () => {
+      beforeEach(() => {
+        env.write('test.ts', `
+          import {Component} from '@angular/core';
+
+          @Component({
+            selector: 'test-cmp',
+            template: '{{expr}}'
+          })
+          export class TestCmp {
+            expr = 'string';
+          }
+        `);
+      });
+
+      // This section tests various scenarios which have more complex ts.Program setups and thus
+      // exercise edge cases of the template type-checker.
+      it('should accept a program with a flat index', () => {
+        // This test asserts that flat indices don't have any negative interactions with the
+        // generation of template type-checking code in the program.
+        env.tsconfig({fullTemplateTypeCheck: true, flatModuleOutFile: 'flat.js'});
+
+        expect(env.driveDiagnostics()).toEqual([]);
+      });
+
+      it('should not leave referencedFiles in a tagged state', () => {
+        env.enableMultipleCompilations();
+
+        env.driveMain();
+        const sf = getSourceFileOrError(env.getTsProgram(), _('/test.ts'));
+        expect(sf.referencedFiles.map(ref => ref.fileName)).toEqual([]);
+      });
+
+      it('should allow for complete program reuse during incremental compilations', () => {
+        env.enableMultipleCompilations();
+
+        env.write('other.ts', `export const VERSION = 1;`);
+
+        env.driveMain();
+        const firstProgram = env.getReuseTsProgram();
+
+        env.write('other.ts', `export const VERSION = 2;`);
+        env.driveMain();
+
+        expectCompleteReuse(firstProgram);
+      });
     });
   });
 });

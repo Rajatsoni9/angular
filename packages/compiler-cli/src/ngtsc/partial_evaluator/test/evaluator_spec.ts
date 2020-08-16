@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -11,7 +11,7 @@ import {absoluteFrom, getSourceFileOrError} from '../../file_system';
 import {runInEachFileSystem} from '../../file_system/testing';
 import {Reference} from '../../imports';
 import {DependencyTracker} from '../../incremental/api';
-import {Declaration, KnownDeclaration, TypeScriptReflectionHost} from '../../reflection';
+import {Declaration, KnownDeclaration, SpecialDeclarationKind, TypeScriptReflectionHost} from '../../reflection';
 import {getDeclaration, makeProgram} from '../../testing';
 import {DynamicValue} from '../src/dynamic';
 import {PartialEvaluator} from '../src/interface';
@@ -198,6 +198,58 @@ runInEachFileSystem(() => {
 
     it('supports null', () => {
       expect(evaluate('const a = null;', 'a')).toEqual(null);
+    });
+
+    it('supports destructuring array variable declarations', () => {
+      const code = `
+        const [a, b, c, d] = [0, 1, 2, 3];
+        const e = c;
+      `;
+
+      expect(evaluate(code, 'a')).toBe(0);
+      expect(evaluate(code, 'b')).toBe(1);
+      expect(evaluate(code, 'c')).toBe(2);
+      expect(evaluate(code, 'd')).toBe(3);
+      expect(evaluate(code, 'e')).toBe(2);
+    });
+
+    it('supports destructuring object variable declaration', () => {
+      const code = `
+        const {a, b, c, d} = {a: 0, b: 1, c: 2, d: 3};
+        const e = c;
+      `;
+
+      expect(evaluate(code, 'a')).toBe(0);
+      expect(evaluate(code, 'b')).toBe(1);
+      expect(evaluate(code, 'c')).toBe(2);
+      expect(evaluate(code, 'd')).toBe(3);
+      expect(evaluate(code, 'e')).toBe(2);
+    });
+
+    it('supports destructuring object variable declaration with an alias', () => {
+      expect(evaluate(`const {a: value} = {a: 5}; const e = value;`, 'e')).toBe(5);
+    });
+
+    it('supports nested destructuring object variable declarations', () => {
+      expect(evaluate(`const {a: {b: {c}}} = {a: {b: {c: 0}}};`, 'c')).toBe(0);
+    });
+
+    it('supports nested destructuring array variable declarations', () => {
+      expect(evaluate(`const [[[a]]] = [[[1]]];`, 'a')).toBe(1);
+    });
+
+    it('supports nested destructuring variable declarations mixing arrays and objects', () => {
+      expect(evaluate(`const {a: {b: [[c]]}} = {a: {b: [[1337]]}};`, 'c')).toBe(1337);
+    });
+
+    it('resolves unknown values in a destructured variable declaration as dynamic values', () => {
+      const value = evaluate(
+          `const {a: {body}} = {a: window};`, 'body',
+          [{name: _('/window.ts'), contents: `declare const window: any;`}]);
+      if (!(value instanceof DynamicValue)) {
+        return fail(`Should have resolved to a DynamicValue`);
+      }
+      expect(value.node.getText()).toBe('body');
     });
 
     it('resolves unknown binary operators as dynamic value', () => {
@@ -488,8 +540,21 @@ runInEachFileSystem(() => {
       if (!(result instanceof EnumValue)) {
         return fail(`result is not an EnumValue`);
       }
-      expect(result.enumRef.node.name.text).toBe('Foo');
+      expect((result.enumRef.node as ts.EnumDeclaration).name.text).toBe('Foo');
       expect(result.name).toBe('B');
+    });
+
+    it('enum resolution works when recognized in reflection host', () => {
+      const {checker, expression} = makeExpression('var Foo;', 'Foo.ValueB');
+      const reflectionHost = new DownleveledEnumReflectionHost(checker);
+      const evaluator = new PartialEvaluator(reflectionHost, checker, null);
+      const result = evaluator.evaluate(expression);
+      if (!(result instanceof EnumValue)) {
+        return fail(`result is not an EnumValue`);
+      }
+      expect(result.enumRef.node.parent.parent.getText()).toBe('var Foo;');
+      expect(result.name).toBe('ValueB');
+      expect(result.resolved).toBe('b');
     });
 
     it('variable declaration resolution works', () => {
@@ -557,15 +622,18 @@ runInEachFileSystem(() => {
       expect(id.text).toEqual('Target');
     });
 
-    it('should resolve functions with more than one statement to an unknown value', () => {
+    it('should resolve functions with more than one statement to a complex function call', () => {
       const value = evaluate(`function foo(bar) { const b = bar; return b; }`, 'foo("test")');
 
       if (!(value instanceof DynamicValue)) {
         return fail(`Should have resolved to a DynamicValue`);
       }
-
-      expect(value.isFromUnknown()).toBe(true);
+      if (!value.isFromComplexFunctionCall()) {
+        return fail('Expected DynamicValue to be from complex function call');
+      }
       expect((value.node as ts.CallExpression).expression.getText()).toBe('foo');
+      expect((value.reason.node as ts.FunctionDeclaration).getText())
+          .toContain('const b = bar; return b;');
     });
 
     describe('(with imported TypeScript helpers)', () => {
@@ -777,25 +845,28 @@ runInEachFileSystem(() => {
       it('should track each time a source file is visited', () => {
         const addDependency =
             jasmine.createSpy<DependencyTracker['addDependency']>('DependencyTracker');
-        const {expression, checker} = makeExpression(
+        const {expression, checker, program} = makeExpression(
             `class A { static foo = 42; } function bar() { return A.foo; }`, 'bar()');
+        const entryPath = getSourceFileOrError(program, _('/entry.ts')).fileName;
         const evaluator = makeEvaluator(checker, {...fakeDepTracker, addDependency});
         evaluator.evaluate(expression);
         expect(addDependency).toHaveBeenCalledTimes(2);  // two declaration visited
         expect(
             addDependency.calls.allArgs().map(
                 (args: Parameters<typeof addDependency>) => [args[0].fileName, args[1].fileName]))
-            .toEqual([[_('/entry.ts'), _('/entry.ts')], [_('/entry.ts'), _('/entry.ts')]]);
+            .toEqual([[entryPath, entryPath], [entryPath, entryPath]]);
       });
 
       it('should track imported source files', () => {
         const addDependency =
             jasmine.createSpy<DependencyTracker['addDependency']>('DependencyTracker');
-        const {expression, checker} =
+        const {expression, checker, program} =
             makeExpression(`import {Y} from './other'; const A = Y;`, 'A', [
               {name: _('/other.ts'), contents: `export const Y = 'test';`},
               {name: _('/not-visited.ts'), contents: `export const Z = 'nope';`}
             ]);
+        const entryPath = getSourceFileOrError(program, _('/entry.ts')).fileName;
+        const otherPath = getSourceFileOrError(program, _('/other.ts')).fileName;
         const evaluator = makeEvaluator(checker, {...fakeDepTracker, addDependency});
         evaluator.evaluate(expression);
         expect(addDependency).toHaveBeenCalledTimes(2);
@@ -803,15 +874,15 @@ runInEachFileSystem(() => {
             addDependency.calls.allArgs().map(
                 (args: Parameters<typeof addDependency>) => [args[0].fileName, args[1].fileName]))
             .toEqual([
-              [_('/entry.ts'), _('/entry.ts')],
-              [_('/entry.ts'), _('/other.ts')],
+              [entryPath, entryPath],
+              [entryPath, otherPath],
             ]);
       });
 
       it('should track files passed through during re-exports', () => {
         const addDependency =
             jasmine.createSpy<DependencyTracker['addDependency']>('DependencyTracker');
-        const {expression, checker} =
+        const {expression, checker, program} =
             makeExpression(`import * as mod from './direct-reexport';`, 'mod.value.property', [
               {name: _('/const.ts'), contents: 'export const value = {property: "test"};'},
               {
@@ -828,20 +899,37 @@ runInEachFileSystem(() => {
               },
             ]);
         const evaluator = makeEvaluator(checker, {...fakeDepTracker, addDependency});
+        const entryPath = getSourceFileOrError(program, _('/entry.ts')).fileName;
+        const directReexportPath = getSourceFileOrError(program, _('/direct-reexport.ts')).fileName;
+        const constPath = getSourceFileOrError(program, _('/const.ts')).fileName;
         evaluator.evaluate(expression);
         expect(addDependency).toHaveBeenCalledTimes(2);
         expect(
             addDependency.calls.allArgs().map(
                 (args: Parameters<typeof addDependency>) => [args[0].fileName, args[1].fileName]))
             .toEqual([
-              [_('/entry.ts'), _('/direct-reexport.ts')],
+              [entryPath, directReexportPath],
               // Not '/indirect-reexport.ts' or '/def.ts'.
               // TS skips through them when finding the original symbol for `value`
-              [_('/entry.ts'), _('/const.ts')],
+              [entryPath, constPath],
             ]);
       });
     });
   });
+
+  class DownleveledEnumReflectionHost extends TypeScriptReflectionHost {
+    getDeclarationOfIdentifier(id: ts.Identifier): Declaration|null {
+      const declaration = super.getDeclarationOfIdentifier(id);
+      if (declaration !== null && declaration.node !== null) {
+        const enumMembers = [
+          {name: ts.createStringLiteral('ValueA'), initializer: ts.createStringLiteral('a')},
+          {name: ts.createStringLiteral('ValueB'), initializer: ts.createStringLiteral('b')},
+        ];
+        declaration.identity = {kind: SpecialDeclarationKind.DownleveledEnum, enumMembers};
+      }
+      return declaration;
+    }
+  }
 
   /**
    * Customizes the resolution of module exports and identifier declarations to recognize known
@@ -872,6 +960,7 @@ runInEachFileSystem(() => {
           known: tsHelperFn,
           node: id,
           viaModule: null,
+          identity: null,
         };
       }
 

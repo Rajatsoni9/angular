@@ -210,10 +210,18 @@ An Angular component class is responsible for exposing data and handling most of
 
 Read more about component classes, templates, and views in [Introduction to Angular concepts](guide/architecture).
 
+
 ## configuration
 
 See  [workspace configuration](#cli-config)
 
+{@a content-projection}
+
+## content projection
+
+A way to insert DOM content from outside a component into the component's view in a designated spot.
+
+For more information, see [Responding to changes in content](guide/lifecycle-hooks#content-projection).
 
 {@a custom-element}
 
@@ -245,15 +253,15 @@ Data binding is an alternative to manually pushing application data values into 
 event listeners, pulling changed values from the screen, and
 updating application data values.
 
-Read about the following forms of binding in [Template Syntax](guide/template-syntax):
+Read about the following forms of binding in Angular's [Template Syntax](guide/template-syntax):
 
- * [Interpolation](guide/template-syntax#interpolation)
- * [Property binding](guide/template-syntax#property-binding)
- * [Event binding](guide/template-syntax#event-binding)
- * [Attribute binding](guide/template-syntax#attribute-binding)
- * [Class binding](guide/template-syntax#class-binding)
- * [Style binding](guide/template-syntax#style-binding)
- * [Two-way data binding with ngModel](guide/template-syntax#ngModel)
+ * [Interpolation](guide/interpolation)
+ * [Property binding](guide/property-binding)
+ * [Event binding](guide/event-binding)
+ * [Attribute binding](guide/attribute-binding)
+ * [Class binding](guide/attribute-binding#class-binding)
+ * [Style binding](guide/attribute-binding#style-binding)
+ * [Two-way data binding with ngModel](guide/built-in-directives#ngModel)
 
 {@a declarable}
 
@@ -465,11 +473,11 @@ Learn more about the injector hierarchy in [Hierarchical Dependency Injectors](g
 ## input
 
 When defining a [directive](#directive), the `@Input()` decorator on a directive property
-makes that property available as a *target* of a [property binding](guide/template-syntax#property-binding).
+makes that property available as a *target* of a [property binding](guide/property-binding).
 Data values flow into an input property from the data source identified
 in the [template expression](#template-expression) to the right of the equal sign.
 
-To learn more, see [input and output properties](guide/template-syntax#inputs-outputs).
+To learn more, see [input and output properties](guide/inputs-outputs).
 
 {@a interpolation}
 
@@ -484,7 +492,7 @@ or displayed between element tags, as in this example.
 ```
 
 
-Read more about [interpolation](guide/template-syntax#interpolation) in [Template Syntax](guide/template-syntax).
+Read more in the [Interpolation](guide/interpolation) guide.
 
 {@a ivy}
 
@@ -571,7 +579,6 @@ Angular calls these hook methods in the following order:
 
 To learn more, see [Lifecycle Hooks](guide/lifecycle-hooks).
 
-
 {@a M}
 
 {@a module}
@@ -594,7 +601,7 @@ Compare to [NgModule](#ngmodule).
 ## ngcc
 
 Angular compatibility compiler.
-If you build your app using [Ivy](#ivy), but it depends on libraries have not been compiled with Ivy, the CLI uses `ngcc` to automatically update the dependent libraries to use Ivy.
+If you build your app using [Ivy](#ivy), but it depends on libraries that have not been compiled with Ivy, the CLI uses `ngcc` to automatically update the dependent libraries to use Ivy.
 
 
 {@a ngmodule}
@@ -646,11 +653,11 @@ An object passed to the `subscribe()` method for an [observable](#observable). T
 ## output
 
 When defining a [directive](#directive), the `@Output{}` decorator on a directive property
-makes that property available as a *target* of [event binding](guide/template-syntax#event-binding).
+makes that property available as a *target* of [event binding](guide/event-binding).
 Events stream *out* of this property to the receiver identified
 in the [template expression](#template-expression) to the right of the equal sign.
 
-To learn more, see [Input and Output Properties](guide/template-syntax#inputs-outputs).
+To learn more, see [Input and Output Properties](guide/inputs-outputs).
 
 
 {@a P}
@@ -725,12 +732,32 @@ The alternative is a [template-driven form](#template-driven-forms).
 When using reactive forms:
 
 * The "source of truth", the form model, is defined in the component class.
-* Validation is set up through validation functions rather than valdation directives.
+* Validation is set up through validation functions rather than validation directives.
 * Each control is explicitly created in the component class by creating a `FormControl` instance manually or with `FormBuilder`.
 * The template input elements do *not* use `ngModel`.
 * The associated Angular directives are prefixed with `form`, such as `formControl`, `formGroup`, and `formControlName`.
 
 The alternative is a template-driven form. For an introduction and comparison of both forms approaches, see [Introduction to Angular Forms](guide/forms-overview).
+
+{@a resolver}
+
+## resolver
+
+A class that implements the [Resolve](api/router/Resolve "API reference") interface (or a function with the same signature as the [resolve() method](api/router/Resolve#resolve "API reference")) that you use to produce or retrieve data that is needed before navigation to a requested route can be completed.
+
+Resolvers run after all [route guards](#route-guard "Definition") for a route tree have been executed and have succeeded.
+
+See an example of using a [resolve guard](guide/router-tutorial-toh#resolve-guard "Routing techniques tutorial") to retrieve dynamic data.
+
+{@a route-guard}
+
+## route guard
+
+A method that controls navigation to a requested route in a routing application.
+Guards determine whether a route can be activated or deactivated, and whether a lazy-loaded module can be loaded.
+
+Learn more in the [Routing and Navigation](guide/router#preventing-unauthorized-access "Examples") guide.
+
 
 {@a router}
 {@a router-module}
@@ -840,7 +867,7 @@ To learn more, see [Introduction to Services and Dependency Injection](guide/arc
 
 ## structural directives
 
-A category of [directive](#directive) that is responsible for shaping HTML layout by modifying the DOM&mdashthat is, adding, removing, or manipulating elements and their children.
+A category of [directive](#directive) that is responsible for shaping HTML layout by modifying the DOM&mdash;that is, adding, removing, or manipulating elements and their children.
 
 To learn more, see [Structural Directives](guide/structural-directives).
 
@@ -910,7 +937,20 @@ The alternative is a reactive form. For an introduction and comparison of both f
 
 A TypeScript-like syntax that Angular evaluates within a [data binding](#data-binding).
 
-Read about how to write template expressions in  [Template expressions](guide/template-syntax#template-expressions).
+Read about how to write template expressions in the [template expressions](guide/interpolation#template-expressions) section of the [Interpolation](guide/interpolation) guide.
+
+{@a template-reference-variable}
+
+## template reference variable
+
+A variable defined in a template that references an instance associated with an element, such as a directive instance, component instance, template as in `TemplateRef`, or DOM element.
+After declaring a template reference variable on an element in a template,
+you can access values from that variable elsewhere within the same template.
+The following example defines a template reference variable named `#phone`.
+
+<code-example path="template-reference-variables/src/app/app.component.html" region="ref-var" header="src/app/app.component.html"></code-example>
+
+For more information, see the [Template reference variable](guide/template-reference-variables) guide.
 
 {@a token}
 
@@ -943,8 +983,25 @@ Many code editors and IDEs support TypeScript either natively or with plug-ins.
 TypeScript is the preferred language for Angular development.
 Read more about TypeScript at [typescriptlang.org](http://www.typescriptlang.org/).
 
+## TypeScript configuration file
+
+A file specifies the root files and the compiler options required to compile a TypeScript project. For more information, see [TypeScript configuration](/guide/typescript-configuration).
+
 
 {@a U}
+
+{@a unidirectional-data-flow}
+
+## unidirectional data flow
+
+A data flow model where the component tree is always checked for changes in one direction (parent to child), which prevents cycles in the change detection graph.
+
+In practice, this means that data in Angular flows downward during change detection.
+A parent component can easily change values in its child components because the parent is checked first.
+A failure could occur, however, if a child component tries to change a value in its parent during change detection (inverting the expected data flow), because the parent component has already been rendered.
+In development mode, Angular throws the `ExpressionChangedAfterItHasBeenCheckedError` error if your app attempts to do this, rather than silently failing to render the new value.
+
+To avoid this error, a [lifecycle hook](guide/lifecycle-hooks) method that seeks to make such a change should trigger a new change detection run. The new run follows the same direction as before, but succeeds in picking up the new value.
 
 {@a universal}
 
@@ -968,7 +1025,7 @@ Angular renders a view under the control of one or more [directives](#directive)
 A [component](#component) class and its associated [template](#template) define a view.
 A view is specifically represented by a `ViewRef` instance associated with a component.
 A view that belongs immediately to a component is called a *host view*.
-Views are typically collected into [view hierarchies](#view-tree). 
+Views are typically collected into [view hierarchies](#view-tree).
 
 Properties of elements in a view can change dynamically, in response to user actions;
 the structure (number and order) of elements in a view can't.

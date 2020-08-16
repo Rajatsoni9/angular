@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -9,7 +9,7 @@
 import {ExternalExpr, SchemaMetadata} from '@angular/compiler';
 import * as ts from 'typescript';
 
-import {ErrorCode, makeDiagnostic} from '../../diagnostics';
+import {ErrorCode, makeDiagnostic, makeRelatedInformation} from '../../diagnostics';
 import {AliasingHost, Reexport, Reference, ReferenceEmitter} from '../../imports';
 import {DirectiveMeta, MetadataReader, MetadataRegistry, NgModuleMeta, PipeMeta} from '../../metadata';
 import {ClassDeclaration} from '../../reflection';
@@ -278,6 +278,11 @@ export class LocalModuleScopeRegistry implements MetadataRegistry, ComponentScop
       return null;
     }
 
+    // Modules which contributed to the compilation scope of this module.
+    const compilationModules = new Set<ClassDeclaration>([ngModule.ref.node]);
+    // Modules which contributed to the export scope of this module.
+    const exportedModules = new Set<ClassDeclaration>([ngModule.ref.node]);
+
     // Errors produced during computation of the scope are recorded here. At the end, if this array
     // isn't empty then `undefined` will be cached and returned to indicate this scope is invalid.
     const diagnostics: ts.Diagnostic[] = [];
@@ -329,6 +334,9 @@ export class LocalModuleScopeRegistry implements MetadataRegistry, ComponentScop
       for (const pipe of importScope.exported.pipes) {
         compilationPipes.set(pipe.ref.node, pipe);
       }
+      for (const importedModule of importScope.exported.ngModules) {
+        compilationModules.add(importedModule);
+      }
     }
 
     // 2) add declarations.
@@ -350,7 +358,8 @@ export class LocalModuleScopeRegistry implements MetadataRegistry, ComponentScop
                     ngModule.ref.node.name
                         .text}', but is not a directive, a component, or a pipe. ` +
                 `Either remove it from the NgModule's declarations, or add an appropriate Angular decorator.`,
-            [{node: decl.node.name, messageText: `'${decl.node.name.text}' is declared here.`}]));
+            [makeRelatedInformation(
+                decl.node.name, `'${decl.node.name.text}' is declared here.`)]));
         continue;
       }
 
@@ -379,6 +388,9 @@ export class LocalModuleScopeRegistry implements MetadataRegistry, ComponentScop
         for (const pipe of importScope.exported.pipes) {
           exportPipes.set(pipe.ref.node, pipe);
         }
+        for (const exportedModule of importScope.exported.ngModules) {
+          exportedModules.add(exportedModule);
+        }
       } else if (compilationDirectives.has(decl.node)) {
         // decl is a directive or component in the compilation scope of this NgModule.
         const directive = compilationDirectives.get(decl.node)!;
@@ -402,6 +414,7 @@ export class LocalModuleScopeRegistry implements MetadataRegistry, ComponentScop
     const exported = {
       directives: Array.from(exportDirectives.values()),
       pipes: Array.from(exportPipes.values()),
+      ngModules: Array.from(exportedModules),
     };
 
     const reexports = this.getReexports(ngModule, ref, declared, exported, diagnostics);
@@ -424,6 +437,7 @@ export class LocalModuleScopeRegistry implements MetadataRegistry, ComponentScop
       compilation: {
         directives: Array.from(compilationDirectives.values()),
         pipes: Array.from(compilationPipes.values()),
+        ngModules: Array.from(compilationModules),
       },
       exported,
       reexports,
@@ -630,8 +644,8 @@ function reexportCollision(
     To fix this problem please re-export one or both classes directly from this file.
   `.trim(),
       [
-        {node: refA.node.name, messageText: childMessageText},
-        {node: refB.node.name, messageText: childMessageText},
+        makeRelatedInformation(refA.node.name, childMessageText),
+        makeRelatedInformation(refB.node.name, childMessageText),
       ]);
 }
 

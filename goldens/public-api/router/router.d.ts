@@ -51,6 +51,14 @@ export declare class ActivationStart {
     toString(): string;
 }
 
+export declare abstract class BaseRouteReuseStrategy implements RouteReuseStrategy {
+    retrieve(route: ActivatedRouteSnapshot): DetachedRouteHandle | null;
+    shouldAttach(route: ActivatedRouteSnapshot): boolean;
+    shouldDetach(route: ActivatedRouteSnapshot): boolean;
+    shouldReuseRoute(future: ActivatedRouteSnapshot, curr: ActivatedRouteSnapshot): boolean;
+    store(route: ActivatedRouteSnapshot, detachedTree: DetachedRouteHandle): void;
+}
+
 export declare interface CanActivate {
     canActivate(route: ActivatedRouteSnapshot, state: RouterStateSnapshot): Observable<boolean | UrlTree> | Promise<boolean | UrlTree> | boolean | UrlTree;
 }
@@ -64,7 +72,7 @@ export declare interface CanDeactivate<T> {
 }
 
 export declare interface CanLoad {
-    canLoad(route: Route, segments: UrlSegment[]): Observable<boolean> | Promise<boolean> | boolean;
+    canLoad(route: Route, segments: UrlSegment[]): Observable<boolean | UrlTree> | Promise<boolean | UrlTree> | boolean | UrlTree;
 }
 
 export declare class ChildActivationEnd {
@@ -148,7 +156,6 @@ export declare class GuardsCheckStart extends RouterEvent {
     toString(): string;
 }
 
-/** @deprecated */
 export declare type InitialNavigation = true | false | 'enabled' | 'disabled' | 'legacy_enabled' | 'legacy_disabled';
 
 export declare type LoadChildren = LoadChildrenCallback | DeprecatedLoadChildren;
@@ -380,7 +387,7 @@ export declare class RouterLink {
     };
     queryParamsHandling: QueryParamsHandling;
     replaceUrl: boolean;
-    set routerLink(commands: any[] | string);
+    set routerLink(commands: any[] | string | null | undefined);
     skipLocationChange: boolean;
     state?: {
         [k: string]: any;
@@ -398,7 +405,7 @@ export declare class RouterLinkActive implements OnChanges, OnDestroy, AfterCont
     routerLinkActiveOptions: {
         exact: boolean;
     };
-    constructor(router: Router, element: ElementRef, renderer: Renderer2, link?: RouterLink | undefined, linkWithHref?: RouterLinkWithHref | undefined);
+    constructor(router: Router, element: ElementRef, renderer: Renderer2, cdr: ChangeDetectorRef, link?: RouterLink | undefined, linkWithHref?: RouterLinkWithHref | undefined);
     ngAfterContentInit(): void;
     ngOnChanges(changes: SimpleChanges): void;
     ngOnDestroy(): void;
@@ -408,13 +415,13 @@ export declare class RouterLinkWithHref implements OnChanges, OnDestroy {
     fragment: string;
     href: string;
     preserveFragment: boolean;
-    set preserveQueryParams(value: boolean);
+    /** @deprecated */ set preserveQueryParams(value: boolean);
     queryParams: {
         [k: string]: any;
     };
     queryParamsHandling: QueryParamsHandling;
     replaceUrl: boolean;
-    set routerLink(commands: any[] | string);
+    set routerLink(commands: any[] | string | null | undefined);
     skipLocationChange: boolean;
     state?: {
         [k: string]: any;

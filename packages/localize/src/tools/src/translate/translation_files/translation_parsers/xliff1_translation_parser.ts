@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -13,8 +13,8 @@ import {BaseVisitor} from '../base_visitor';
 import {MessageSerializer} from '../message_serialization/message_serializer';
 import {TargetMessageRenderer} from '../message_serialization/target_message_renderer';
 
-import {ParsedTranslationBundle, TranslationParser} from './translation_parser';
-import {XmlTranslationParserHint, addParseDiagnostic, addParseError, canParseXml, getAttribute, isNamedElement, parseInnerRange} from './translation_utils';
+import {ParseAnalysis, ParsedTranslationBundle, TranslationParser} from './translation_parser';
+import {addParseDiagnostic, addParseError, canParseXml, getAttribute, isNamedElement, parseInnerRange, XmlTranslationParserHint} from './translation_utils';
 
 /**
  * A translation parser that can load XLIFF 1.2 files.
@@ -22,9 +22,18 @@ import {XmlTranslationParserHint, addParseDiagnostic, addParseError, canParseXml
  * http://docs.oasis-open.org/xliff/v1.2/os/xliff-core.html
  * http://docs.oasis-open.org/xliff/v1.2/xliff-profile-html/xliff-profile-html-1.2.html
  *
+ * @see Xliff1TranslationSerializer
  */
 export class Xliff1TranslationParser implements TranslationParser<XmlTranslationParserHint> {
+  /**
+   * @deprecated
+   */
   canParse(filePath: string, contents: string): XmlTranslationParserHint|false {
+    const result = this.analyze(filePath, contents);
+    return result.canParse && result.hint;
+  }
+
+  analyze(filePath: string, contents: string): ParseAnalysis<XmlTranslationParserHint> {
     return canParseXml(filePath, contents, 'xliff', {version: '1.2'});
   }
 
@@ -74,7 +83,8 @@ export class Xliff1TranslationParser implements TranslationParser<XmlTranslation
     if (localesFound.size > 1) {
       addParseDiagnostic(
           diagnostics, element.sourceSpan,
-          `More than one locale found in translation file: ${JSON.stringify(Array.from(localesFound))}. Using "${bundle.locale}"`,
+          `More than one locale found in translation file: ${
+              JSON.stringify(Array.from(localesFound))}. Using "${bundle.locale}"`,
           ParseErrorLevel.WARNING);
     }
 

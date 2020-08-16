@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -10,7 +10,7 @@ import * as chars from '../chars';
 import {DEFAULT_INTERPOLATION_CONFIG, InterpolationConfig} from '../ml_parser/interpolation_config';
 import {escapeRegExp} from '../util';
 
-import {AbsoluteSourceSpan, AST, AstVisitor, ASTWithSource, Binary, BindingPipe, Chain, Conditional, EmptyExpr, ExpressionBinding, FunctionCall, ImplicitReceiver, Interpolation, KeyedRead, KeyedWrite, LiteralArray, LiteralMap, LiteralMapKey, LiteralPrimitive, MethodCall, NonNullAssert, ParserError, ParseSpan, PrefixNot, PropertyRead, PropertyWrite, Quote, SafeMethodCall, SafePropertyRead, TemplateBinding, TemplateBindingIdentifier, VariableBinding} from './ast';
+import {AbsoluteSourceSpan, AST, AstVisitor, ASTWithSource, Binary, BindingPipe, Chain, Conditional, EmptyExpr, ExpressionBinding, FunctionCall, ImplicitReceiver, Interpolation, KeyedRead, KeyedWrite, LiteralArray, LiteralMap, LiteralMapKey, LiteralPrimitive, MethodCall, NonNullAssert, ParserError, ParseSpan, PrefixNot, PropertyRead, PropertyWrite, Quote, RecursiveAstVisitor, SafeMethodCall, SafePropertyRead, TemplateBinding, TemplateBindingIdentifier, VariableBinding} from './ast';
 import {EOF, isIdentifier, isQuote, Lexer, Token, TokenType} from './lexer';
 
 export class SplitInterpolation {
@@ -305,9 +305,34 @@ export class _ParseAST {
     return this.peek(0);
   }
 
+  /** Whether all the parser input has been processed. */
+  get atEOF(): boolean {
+    return this.index >= this.tokens.length;
+  }
+
+  /**
+   * Index of the next token to be processed, or the end of the last token if all have been
+   * processed.
+   */
   get inputIndex(): number {
-    return (this.index < this.tokens.length) ? this.next.index + this.offset :
-                                               this.inputLength + this.offset;
+    return this.atEOF ? this.currentEndIndex : this.next.index + this.offset;
+  }
+
+  /**
+   * End index of the last processed token, or the start of the first token if none have been
+   * processed.
+   */
+  get currentEndIndex(): number {
+    if (this.index > 0) {
+      const curToken = this.peek(-1);
+      return curToken.end + this.offset;
+    }
+    // No tokens have been processed yet; return the next token's start or the length of the input
+    // if there is no token.
+    if (this.tokens.length === 0) {
+      return this.inputLength + this.offset;
+    }
+    return this.next.index + this.offset;
   }
 
   /**
@@ -318,12 +343,7 @@ export class _ParseAST {
   }
 
   span(start: number) {
-    // `end` is either the
-    //   - end index of the current token
-    //   - start of the first token (this can happen e.g. when creating an implicit receiver)
-    const curToken = this.peek(-1);
-    const end = this.index > 0 ? curToken.end + this.offset : this.inputIndex;
-    return new ParseSpan(start, end);
+    return new ParseSpan(start, this.currentEndIndex);
   }
 
   sourceSpan(start: number): AbsoluteSourceSpan {
@@ -730,7 +750,9 @@ export class _ParseAST {
 
   parseAccessMemberOrMethodCall(receiver: AST, isSafe: boolean = false): AST {
     const start = receiver.span.start;
+    const nameStart = this.inputIndex;
     const id = this.expectIdentifierOrKeyword();
+    const nameSpan = this.sourceSpan(nameStart);
 
     if (this.consumeOptionalCharacter(chars.$LPAREN)) {
       this.rparensExpected++;
@@ -739,8 +761,8 @@ export class _ParseAST {
       this.rparensExpected--;
       const span = this.span(start);
       const sourceSpan = this.sourceSpan(start);
-      return isSafe ? new SafeMethodCall(span, sourceSpan, receiver, id, args) :
-                      new MethodCall(span, sourceSpan, receiver, id, args);
+      return isSafe ? new SafeMethodCall(span, sourceSpan, nameSpan, receiver, id, args) :
+                      new MethodCall(span, sourceSpan, nameSpan, receiver, id, args);
 
     } else {
       if (isSafe) {
@@ -748,7 +770,8 @@ export class _ParseAST {
           this.error('The \'?.\' operator cannot be used in the assignment');
           return new EmptyExpr(this.span(start), this.sourceSpan(start));
         } else {
-          return new SafePropertyRead(this.span(start), this.sourceSpan(start), receiver, id);
+          return new SafePropertyRead(
+              this.span(start), this.sourceSpan(start), nameSpan, receiver, id);
         }
       } else {
         if (this.consumeOptionalOperator('=')) {
@@ -758,9 +781,10 @@ export class _ParseAST {
           }
 
           const value = this.parseConditional();
-          return new PropertyWrite(this.span(start), this.sourceSpan(start), receiver, id, value);
+          return new PropertyWrite(
+              this.span(start), this.sourceSpan(start), nameSpan, receiver, id, value);
         } else {
-          return new PropertyRead(this.span(start), this.sourceSpan(start), receiver, id);
+          return new PropertyRead(this.span(start), this.sourceSpan(start), nameSpan, receiver, id);
         }
       }
     }
@@ -1028,11 +1052,11 @@ class SimpleExpressionChecker implements AstVisitor {
   visitFunctionCall(ast: FunctionCall, context: any) {}
 
   visitLiteralArray(ast: LiteralArray, context: any) {
-    this.visitAll(ast.expressions);
+    this.visitAll(ast.expressions, context);
   }
 
   visitLiteralMap(ast: LiteralMap, context: any) {
-    this.visitAll(ast.values);
+    this.visitAll(ast.values, context);
   }
 
   visitBinary(ast: Binary, context: any) {}
@@ -1051,8 +1075,8 @@ class SimpleExpressionChecker implements AstVisitor {
 
   visitKeyedWrite(ast: KeyedWrite, context: any) {}
 
-  visitAll(asts: any[]): any[] {
-    return asts.map(node => node.visit(this));
+  visitAll(asts: any[], context: any): any[] {
+    return asts.map(node => node.visit(this, context));
   }
 
   visitChain(ast: Chain, context: any) {}
@@ -1061,19 +1085,16 @@ class SimpleExpressionChecker implements AstVisitor {
 }
 
 /**
- * This class extends SimpleExpressionChecker used in View Engine and performs more strict checks to
- * make sure host bindings do not contain pipes. In View Engine, having pipes in host bindings is
+ * This class implements SimpleExpressionChecker used in View Engine and performs more strict checks
+ * to make sure host bindings do not contain pipes. In View Engine, having pipes in host bindings is
  * not supported as well, but in some cases (like `!(value | async)`) the error is not triggered at
  * compile time. In order to preserve View Engine behavior, more strict checks are introduced for
  * Ivy mode only.
  */
-class IvySimpleExpressionChecker extends SimpleExpressionChecker {
-  visitBinary(ast: Binary, context: any) {
-    ast.left.visit(this);
-    ast.right.visit(this);
-  }
+class IvySimpleExpressionChecker extends RecursiveAstVisitor implements SimpleExpressionChecker {
+  errors: string[] = [];
 
-  visitPrefixNot(ast: PrefixNot, context: any) {
-    ast.expression.visit(this);
+  visitPipe() {
+    this.errors.push('pipes');
   }
 }

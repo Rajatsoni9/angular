@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -11,6 +11,7 @@ import {TempScopedNodeJsSyncHost} from '@angular-devkit/core/node/testing';
 import {HostTree} from '@angular-devkit/schematics';
 import {SchematicTestRunner, UnitTestTree} from '@angular-devkit/schematics/testing';
 import * as shx from 'shelljs';
+import {dedent} from './helpers';
 
 describe('Undecorated classes with decorated fields migration', () => {
   let runner: SchematicTestRunner;
@@ -18,6 +19,7 @@ describe('Undecorated classes with decorated fields migration', () => {
   let tree: UnitTestTree;
   let tmpDirPath: string;
   let previousWorkingDir: string;
+  let warnings: string[];
 
   beforeEach(() => {
     runner = new SchematicTestRunner('test', require.resolve('../migrations.json'));
@@ -28,6 +30,13 @@ describe('Undecorated classes with decorated fields migration', () => {
     writeFile('/angular.json', JSON.stringify({
       projects: {t: {architect: {build: {options: {tsConfig: './tsconfig.json'}}}}}
     }));
+
+    warnings = [];
+    runner.logger.subscribe(entry => {
+      if (entry.level === 'warn') {
+        warnings.push(entry.message);
+      }
+    });
 
     previousWorkingDir = shx.pwd();
     tmpDirPath = getSystemPath(host.root);
@@ -78,7 +87,7 @@ describe('Undecorated classes with decorated fields migration', () => {
      async () => {
        writeFile('/index.ts', `
       import { HostBinding } from '@angular/core';
-      
+
       export class Directive {
         // Simulates a scenario where a library defines a class named "Directive".
         // We don't want to generate a conflicting import.
@@ -109,26 +118,253 @@ describe('Undecorated classes with decorated fields migration', () => {
     expect(tree.readContent('/index.ts')).toContain(`@Directive()\nexport class Base {`);
   });
 
-  it('should not change decorated classes', async () => {
-    writeFile('/index.ts', `
-      import { Input, Component, Output, EventEmitter } from '@angular/core';
+  it('should not migrate classes decorated with @Component', async () => {
+    writeFile('/index.ts', dedent`
+      import {Input, Component} from '@angular/core';
 
-      @Component({})
+      @Component({selector: 'hello', template: 'hello'})
       export class Base {
         @Input() isActive: boolean;
       }
-
-      export class Child extends Base {
-        @Output() clicked = new EventEmitter<void>();
+      
+      @Component({selector: 'hello', template: 'hello'})
+      export class Derived extends Base {
+        ngOnDestroy() {} 
       }
     `);
 
     await runMigration();
-    const content = tree.readContent('/index.ts');
-    expect(content).toContain(
-        `import { Input, Component, Output, EventEmitter, Directive } from '@angular/core';`);
-    expect(content).toContain(`@Component({})\n      export class Base {`);
-    expect(content).toContain(`@Directive()\nexport class Child extends Base {`);
+
+    expect(warnings.length).toBe(0);
+    expect(tree.readContent('/index.ts')).toBe(dedent`
+      import {Input, Component} from '@angular/core';
+
+      @Component({selector: 'hello', template: 'hello'})
+      export class Base {
+        @Input() isActive: boolean;
+      }
+
+      @Component({selector: 'hello', template: 'hello'})
+      export class Derived extends Base {
+        ngOnDestroy() {} 
+      }
+    `);
+  });
+
+  it('should not migrate classes decorated with @Directive', async () => {
+    writeFile('/index.ts', dedent`
+      import {Input, Directive} from '@angular/core';
+
+      @Directive()
+      export class Base {
+        @Input() isActive: boolean;
+      }
+      
+      @Directive({selector: 'other'})
+      export class Other extends Base {
+        ngOnDestroy() {} 
+      }
+    `);
+
+    await runMigration();
+
+    expect(warnings.length).toBe(0);
+    expect(tree.readContent('/index.ts')).toBe(dedent`
+      import {Input, Directive} from '@angular/core';
+
+      @Directive()
+      export class Base {
+        @Input() isActive: boolean;
+      }
+      
+      @Directive({selector: 'other'})
+      export class Other extends Base {
+        ngOnDestroy() {} 
+      }
+    `);
+  });
+
+  it('should not migrate when class inherits from component', async () => {
+    writeFile('/index.ts', dedent`
+      import {Input, Component} from '@angular/core';
+
+      @Component({selector: 'my-comp', template: 'my-comp'})
+      export class MyComp {}
+      
+      export class WithDisabled extends MyComp {
+        @Input() disabled: boolean;
+      }
+    `);
+
+    await runMigration();
+
+    expect(warnings.length).toBe(0);
+    expect(tree.readContent('/index.ts')).toBe(dedent`
+      import {Input, Component} from '@angular/core';
+
+      @Component({selector: 'my-comp', template: 'my-comp'})
+      export class MyComp {}
+      
+      export class WithDisabled extends MyComp {
+        @Input() disabled: boolean;
+      }
+    `);
+  });
+
+  it('should not migrate when class inherits from pipe', async () => {
+    writeFile('/index.ts', dedent`
+      import {Pipe} from '@angular/core';
+
+      @Pipe({name: 'my-pipe'})
+      export class MyPipe {}
+      
+      export class PipeDerived extends MyPipe {
+        ngOnDestroy() {}
+      }
+    `);
+
+    await runMigration();
+
+    expect(warnings.length).toBe(0);
+    expect(tree.readContent('/index.ts')).toBe(dedent`
+      import {Pipe} from '@angular/core';
+
+      @Pipe({name: 'my-pipe'})
+      export class MyPipe {}
+      
+      export class PipeDerived extends MyPipe {
+        ngOnDestroy() {}
+      }
+    `);
+  });
+
+  it('should not migrate when class inherits from injectable', async () => {
+    writeFile('/index.ts', dedent`
+      import {Injectable} from '@angular/core';
+
+      @Injectable()
+      export class MyService {}
+      
+      export class ServiceDerived extends MyService {
+        ngOnDestroy() {}
+      }
+    `);
+
+    await runMigration();
+
+    expect(warnings.length).toBe(0);
+    expect(tree.readContent('/index.ts')).toBe(dedent`
+      import {Injectable} from '@angular/core';
+
+      @Injectable()
+      export class MyService {}
+      
+      export class ServiceDerived extends MyService {
+        ngOnDestroy() {}
+      }
+    `);
+  });
+
+  it('should not migrate when class inherits from directive', async () => {
+    writeFile('/index.ts', dedent`
+      import {Directive} from '@angular/core';
+
+      @Directive({selector: 'hello'})
+      export class MyDir {}
+      
+      export class DirDerived extends MyDir {
+        ngOnDestroy() {}
+      }
+    `);
+
+    await runMigration();
+
+    expect(warnings.length).toBe(0);
+    expect(tree.readContent('/index.ts')).toBe(dedent`
+      import {Directive} from '@angular/core';
+
+      @Directive({selector: 'hello'})
+      export class MyDir {}
+      
+      export class DirDerived extends MyDir {
+        ngOnDestroy() {}
+      }
+    `);
+  });
+
+  it('should not add multiple TODOs for ambiguous classes', async () => {
+    writeFile('/angular.json', JSON.stringify({
+      projects: {
+        test: {
+          architect: {
+            build: {options: {tsConfig: './tsconfig.json'}},
+            test: {options: {tsConfig: './tsconfig.json'}},
+          }
+        }
+      }
+    }));
+    writeFile('/index.ts', dedent`
+      export class MyService {
+        ngOnDestroy() {}
+      }
+    `);
+
+    await runMigration();
+
+    expect(tree.readContent('/index.ts')).toBe(dedent`
+      // TODO: Add Angular decorator.
+      export class MyService {
+        ngOnDestroy() {}
+      }
+    `);
+  });
+
+  it('should not report pipe using `ngOnDestroy` as ambiguous', async () => {
+    writeFile('/index.ts', dedent`
+      import {Pipe} from '@angular/core';
+
+      @Pipe({name: 'my-pipe'})
+      export class MyPipe {
+        ngOnDestroy() {}
+        transform() {}
+      }
+    `);
+
+    await runMigration();
+
+    expect(warnings.length).toBe(0);
+    expect(tree.readContent('/index.ts')).toBe(dedent`
+      import {Pipe} from '@angular/core';
+
+      @Pipe({name: 'my-pipe'})
+      export class MyPipe {
+        ngOnDestroy() {}
+        transform() {}
+      }
+    `);
+  });
+
+  it('should not report injectable using `ngOnDestroy` as ambiguous', async () => {
+    writeFile('/index.ts', dedent`
+      import {Injectable} from '@angular/core';
+
+      @Injectable({providedIn: 'root'})
+      export class MyService {
+        ngOnDestroy() {}
+      }
+    `);
+
+    await runMigration();
+
+    expect(warnings.length).toBe(0);
+    expect(tree.readContent('/index.ts')).toBe(dedent`
+      import {Injectable} from '@angular/core';
+
+      @Injectable({providedIn: 'root'})
+      export class MyService {
+        ngOnDestroy() {}
+      }
+    `);
   });
 
   it('should add @Directive to undecorated classes that have @Output', async () => {
@@ -228,6 +464,45 @@ describe('Undecorated classes with decorated fields migration', () => {
     expect(tree.readContent('/index.ts')).toContain(`@Directive()\nexport class Base {`);
   });
 
+  it('should migrate undecorated class that uses "ngOnChanges" lifecycle hook',
+     () => assertLifecycleHookMigrated('ngOnChanges'));
+  it('should migrate undecorated class that uses "ngOnInit" lifecycle hook',
+     () => assertLifecycleHookMigrated('ngOnInit'));
+  it('should migrate undecorated class that uses "ngDoCheck" lifecycle hook',
+     () => assertLifecycleHookMigrated('ngDoCheck'));
+  it('should migrate undecorated class that uses "ngAfterViewInit" lifecycle hook',
+     () => assertLifecycleHookMigrated('ngAfterViewInit'));
+  it('should migrate undecorated class that uses "ngAfterViewChecked" lifecycle hook',
+     () => assertLifecycleHookMigrated('ngAfterViewChecked'));
+  it('should migrate undecorated class that uses "ngAfterContentInit" lifecycle hook',
+     () => assertLifecycleHookMigrated('ngAfterContentInit'));
+  it('should migrate undecorated class that uses "ngAfterContentChecked" lifecycle hook',
+     () => assertLifecycleHookMigrated('ngAfterContentChecked'));
+
+  it(`should report an error and add a TODO for undecorated classes that only define ` +
+         `the "ngOnDestroy" lifecycle hook`,
+     async () => {
+       writeFile('/index.ts', `
+      import { Input } from '@angular/core';
+
+      export class SomeClassWithAngularFeatures {
+        ngOnDestroy() {
+          // noop for testing
+        }
+      }
+    `);
+
+       await runMigration();
+
+       expect(warnings.length).toBe(1);
+       expect(warnings[0])
+           .toMatch(
+               'index.ts@4:7: Class uses Angular features but cannot be migrated automatically. ' +
+               'Please add an appropriate Angular decorator.');
+       expect(tree.readContent('/index.ts'))
+           .toMatch(/TODO: Add Angular decorator\.\nexport class SomeClassWithAngularFeatures {/);
+     });
+
   it('should add @Directive to undecorated derived classes of a migrated class', async () => {
     writeFile('/index.ts', `
       import { Input, Directive, NgModule } from '@angular/core';
@@ -235,22 +510,24 @@ describe('Undecorated classes with decorated fields migration', () => {
       export class Base {
         @Input() isActive: boolean;
       }
-      
+
       export class DerivedA extends Base {}
       export class DerivedB extends DerivedA {}
       export class DerivedC extends DerivedB {}
-      
+
       @Directive({selector: 'my-comp'})
       export class MyComp extends DerivedC {}
-      
+
       export class MyCompWrapped extends MyComp {}
-      
+
       @NgModule({declarations: [MyComp, MyCompWrapped]})
-      export class AppModule {} 
+      export class AppModule {}
     `);
 
     await runMigration();
     const fileContent = tree.readContent('/index.ts');
+
+    expect(warnings.length).toBe(0);
     expect(fileContent).toContain(`import { Input, Directive, NgModule } from '@angular/core';`);
     expect(fileContent).toMatch(/@Directive\(\)\s+export class Base/);
     expect(fileContent).toMatch(/@Directive\(\)\s+export class DerivedA/);
@@ -258,6 +535,7 @@ describe('Undecorated classes with decorated fields migration', () => {
     expect(fileContent).toMatch(/@Directive\(\)\s+export class DerivedC/);
     expect(fileContent).toMatch(/}\s+@Directive\(\{selector: 'my-comp'}\)\s+export class MyComp/);
     expect(fileContent).toMatch(/}\s+export class MyCompWrapped/);
+    expect(fileContent).not.toContain('TODO: Add Angular decorator');
   });
 
   it('should add @Directive to derived undecorated classes of abstract directives', async () => {
@@ -268,18 +546,18 @@ describe('Undecorated classes with decorated fields migration', () => {
       export class Base {
         // ...
       }
-      
+
       export class DerivedA extends Base {}
       export class DerivedB extends DerivedA {}
       export class DerivedC extends DerivedB {}
-      
+
       @Directive({selector: 'my-comp'})
       export class MyComp extends DerivedC {}
-      
+
       export class MyCompWrapped extends MyComp {}
-      
+
       @NgModule({declarations: [MyComp, MyCompWrapped]})
-      export class AppModule {} 
+      export class AppModule {}
     `);
 
     await runMigration();
@@ -314,13 +592,29 @@ describe('Undecorated classes with decorated fields migration', () => {
     expect(error).toBe(null);
   });
 
+  async function assertLifecycleHookMigrated(lifecycleHookName: string) {
+    writeFile('/index.ts', `
+      import { Input } from '@angular/core';
+
+      export class SomeClassWithAngularFeatures {
+        ${lifecycleHookName}() {
+          // noop for testing
+        }
+      }
+    `);
+
+    await runMigration();
+    expect(tree.readContent('/index.ts'))
+        .toContain(`@Directive()\nexport class SomeClassWithAngularFeatures {`);
+  }
+
   function writeFile(filePath: string, contents: string) {
     host.sync.write(normalize(filePath), virtualFs.stringToFileBuffer(contents));
   }
 
   function runMigration() {
     return runner
-        .runSchematicAsync('migration-v9-undecorated-classes-with-decorated-fields', {}, tree)
+        .runSchematicAsync('migration-v10-undecorated-classes-with-decorated-fields', {}, tree)
         .toPromise();
   }
 });

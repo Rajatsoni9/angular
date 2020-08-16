@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -23,7 +23,7 @@ runInEachFileSystem(() => {
         boundTemplate,
         templateMeta: {
           isInline: false,
-          file: new ParseSourceFile('<div></div>', util.getTestFilePath()),
+          file: new ParseSourceFile('<div></div>', declaration.getSourceFile().fileName),
         },
       });
 
@@ -34,7 +34,7 @@ runInEachFileSystem(() => {
           boundTemplate,
           templateMeta: {
             isInline: false,
-            file: new ParseSourceFile('<div></div>', util.getTestFilePath()),
+            file: new ParseSourceFile('<div></div>', declaration.getSourceFile().fileName),
           },
         },
       ]));

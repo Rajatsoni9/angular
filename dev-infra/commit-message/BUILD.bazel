@@ -5,7 +5,10 @@ ts_library(
     name = "commit-message",
     srcs = [
         "cli.ts",
+        "commit-message-draft.ts",
         "config.ts",
+        "parse.ts",
+        "restore-commit-message.ts",
         "validate.ts",
         "validate-file.ts",
         "validate-range.ts",
@@ -13,26 +16,29 @@ ts_library(
     module_name = "@angular/dev-infra-private/commit-message",
     visibility = ["//dev-infra:__subpackages__"],
     deps = [
-        "//dev-infra/utils:config",
+        "//dev-infra/utils",
         "@npm//@types/node",
         "@npm//@types/shelljs",
         "@npm//@types/yargs",
         "@npm//shelljs",
-        "@npm//tslib",
         "@npm//yargs",
     ],
 )
 
 ts_library(
-    name = "validate-test",
+    name = "test_lib",
     testonly = True,
-    srcs = ["validate.spec.ts"],
+    srcs = [
+        "parse.spec.ts",
+        "validate.spec.ts",
+    ],
     deps = [
         ":commit-message",
-        "//dev-infra/utils:config",
+        "//dev-infra/utils",
         "@npm//@types/events",
         "@npm//@types/jasmine",
         "@npm//@types/node",
+        "@npm//inquirer",
     ],
 )
 
@@ -40,7 +46,6 @@ jasmine_node_test(
     name = "test",
     bootstrap = ["//tools/testing:node_no_angular_es5"],
     deps = [
-        ":commit-message",
-        ":validate-test",
+        "test_lib",
     ],
 )

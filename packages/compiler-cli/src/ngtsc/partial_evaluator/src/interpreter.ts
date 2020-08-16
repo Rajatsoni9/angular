@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -11,7 +11,7 @@ import * as ts from 'typescript';
 import {Reference} from '../../imports';
 import {OwningModule} from '../../imports/src/references';
 import {DependencyTracker} from '../../incremental/api';
-import {Declaration, InlineDeclaration, ReflectionHost} from '../../reflection';
+import {ConcreteDeclaration, Declaration, EnumMember, FunctionDefinition, InlineDeclaration, ReflectionHost, SpecialDeclarationKind} from '../../reflection';
 import {isDeclaration} from '../../util/src/typescript';
 
 import {ArrayConcatBuiltinFn, ArraySliceBuiltinFn} from './builtin';
@@ -225,6 +225,10 @@ export class StaticInterpreter {
     }
     if (decl.known !== null) {
       return resolveKnownDeclaration(decl.known);
+    } else if (
+        isConcreteDeclaration(decl) && decl.identity !== null &&
+        decl.identity.kind === SpecialDeclarationKind.DownleveledEnum) {
+      return this.getResolvedEnum(decl.node, decl.identity.enumMembers, context);
     }
     const declContext = {...context, ...joinModuleContext(context, node, decl)};
     // The identifier's declaration is either concrete (a ts.Declaration exists for it) or inline
@@ -262,6 +266,8 @@ export class StaticInterpreter {
       return this.visitEnumDeclaration(node, context);
     } else if (ts.isSourceFile(node)) {
       return this.visitSourceFile(node, context);
+    } else if (ts.isBindingElement(node)) {
+      return this.visitBindingElement(node, context);
     } else {
       return this.getReference(node, context);
     }
@@ -279,7 +285,7 @@ export class StaticInterpreter {
   }
 
   private visitEnumDeclaration(node: ts.EnumDeclaration, context: Context): ResolvedValue {
-    const enumRef = this.getReference(node, context) as Reference<ts.EnumDeclaration>;
+    const enumRef = this.getReference(node, context);
     const map = new Map<string, EnumValue>();
     node.members.forEach(member => {
       const name = this.stringNameFromPropertyName(member.name, context);
@@ -343,9 +349,8 @@ export class StaticInterpreter {
     });
   }
 
-  private accessHelper(
-      node: ts.Expression, lhs: ResolvedValue, rhs: string|number,
-      context: Context): ResolvedValue {
+  private accessHelper(node: ts.Node, lhs: ResolvedValue, rhs: string|number, context: Context):
+      ResolvedValue {
     const strIndex = `${rhs}`;
     if (lhs instanceof Map) {
       if (lhs.has(strIndex)) {
@@ -441,21 +446,56 @@ export class StaticInterpreter {
         };
       }
 
-      const res = this.visitExpression(expr, context);
-      if (res instanceof Reference) {
-        // This Reference was created synthetically, via a foreign function resolver. The real
-        // runtime value of the function expression may be different than the foreign function
-        // resolved value, so mark the Reference as synthetic to avoid it being misinterpreted.
-        res.synthetic = true;
-      }
-      return res;
+      return this.visitFfrExpression(expr, context);
     }
 
-    const body = fn.body;
-    if (body.length !== 1 || !ts.isReturnStatement(body[0])) {
-      return DynamicValue.fromUnknown(node);
+    let res: ResolvedValue = this.visitFunctionBody(node, fn, context);
+
+    // If the result of attempting to resolve the function body was a DynamicValue, attempt to use
+    // the foreignFunctionResolver if one is present. This could still potentially yield a usable
+    // value.
+    if (res instanceof DynamicValue && context.foreignFunctionResolver !== undefined) {
+      const ffrExpr = context.foreignFunctionResolver(lhs, node.arguments);
+      if (ffrExpr !== null) {
+        // The foreign function resolver was able to extract an expression from this function. See
+        // if that expression leads to a non-dynamic result.
+        const ffrRes = this.visitFfrExpression(ffrExpr, context);
+        if (!(ffrRes instanceof DynamicValue)) {
+          // FFR yielded an actual result that's not dynamic, so use that instead of the original
+          // resolution.
+          res = ffrRes;
+        }
+      }
     }
-    const ret = body[0] as ts.ReturnStatement;
+
+    return res;
+  }
+
+  /**
+   * Visit an expression which was extracted from a foreign-function resolver.
+   *
+   * This will process the result and ensure it's correct for FFR-resolved values, including marking
+   * `Reference`s as synthetic.
+   */
+  private visitFfrExpression(expr: ts.Expression, context: Context): ResolvedValue {
+    const res = this.visitExpression(expr, context);
+    if (res instanceof Reference) {
+      // This Reference was created synthetically, via a foreign function resolver. The real
+      // runtime value of the function expression may be different than the foreign function
+      // resolved value, so mark the Reference as synthetic to avoid it being misinterpreted.
+      res.synthetic = true;
+    }
+    return res;
+  }
+
+  private visitFunctionBody(node: ts.CallExpression, fn: FunctionDefinition, context: Context):
+      ResolvedValue {
+    if (fn.body === null) {
+      return DynamicValue.fromUnknown(node);
+    } else if (fn.body.length !== 1 || !ts.isReturnStatement(fn.body[0])) {
+      return DynamicValue.fromComplexFunctionCall(node, fn);
+    }
+    const ret = fn.body[0] as ts.ReturnStatement;
 
     const args = this.evaluateFunctionArguments(node, context);
     const newScope: Scope = new Map<ts.ParameterDeclaration, ResolvedValue>();
@@ -561,6 +601,47 @@ export class StaticInterpreter {
     }
   }
 
+  private visitBindingElement(node: ts.BindingElement, context: Context): ResolvedValue {
+    const path: ts.BindingElement[] = [];
+    let closestDeclaration: ts.Node = node;
+
+    while (ts.isBindingElement(closestDeclaration) ||
+           ts.isArrayBindingPattern(closestDeclaration) ||
+           ts.isObjectBindingPattern(closestDeclaration)) {
+      if (ts.isBindingElement(closestDeclaration)) {
+        path.unshift(closestDeclaration);
+      }
+
+      closestDeclaration = closestDeclaration.parent;
+    }
+
+    if (!ts.isVariableDeclaration(closestDeclaration) ||
+        closestDeclaration.initializer === undefined) {
+      return DynamicValue.fromUnknown(node);
+    }
+
+    let value = this.visit(closestDeclaration.initializer, context);
+    for (const element of path) {
+      let key: number|string;
+      if (ts.isArrayBindingPattern(element.parent)) {
+        key = element.parent.elements.indexOf(element);
+      } else {
+        const name = element.propertyName || element.name;
+        if (ts.isIdentifier(name)) {
+          key = name.text;
+        } else {
+          return DynamicValue.fromUnknown(element);
+        }
+      }
+      value = this.accessHelper(element, value, key, context);
+      if (value instanceof DynamicValue) {
+        return value;
+      }
+    }
+
+    return value;
+  }
+
   private stringNameFromPropertyName(node: ts.PropertyName, context: Context): string|undefined {
     if (ts.isIdentifier(node) || ts.isStringLiteral(node) || ts.isNumericLiteral(node)) {
       return node.text;
@@ -572,7 +653,21 @@ export class StaticInterpreter {
     }
   }
 
-  private getReference(node: ts.Declaration, context: Context): Reference {
+  private getResolvedEnum(node: ts.Declaration, enumMembers: EnumMember[], context: Context):
+      ResolvedValue {
+    const enumRef = this.getReference(node, context);
+    const map = new Map<string, EnumValue>();
+    enumMembers.forEach(member => {
+      const name = this.stringNameFromPropertyName(member.name, context);
+      if (name !== undefined) {
+        const resolved = this.visit(member.initializer, context);
+        map.set(name, new EnumValue(enumRef, name, resolved));
+      }
+    });
+    return map;
+  }
+
+  private getReference<T extends ts.Declaration>(node: T, context: Context): Reference<T> {
     return new Reference(node, owningModule(context));
   }
 }
@@ -637,4 +732,12 @@ function owningModule(context: Context, override: OwningModule|null = null): Own
   } else {
     return null;
   }
+}
+
+/**
+ * Helper type guard to workaround a narrowing limitation in g3, where testing for
+ * `decl.node !== null` would not narrow `decl` to be of type `ConcreteDeclaration`.
+ */
+function isConcreteDeclaration(decl: Declaration): decl is ConcreteDeclaration {
+  return decl.node !== null;
 }

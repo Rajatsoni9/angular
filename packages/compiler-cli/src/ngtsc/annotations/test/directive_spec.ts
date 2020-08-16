@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -99,7 +99,8 @@ runInEachFileSystem(() => {
     const handler = new DirectiveDecoratorHandler(
         reflectionHost, evaluator, scopeRegistry, scopeRegistry, metaReader,
         NOOP_DEFAULT_IMPORT_RECORDER, injectableRegistry, /*isCore*/ false,
-        /*annotateForClosureCompiler*/ false);
+        /*annotateForClosureCompiler*/ false,
+        /*detectUndecoratedClassesWithAngularFeatures*/ false);
 
     const DirNode = getDeclaration(program, _('/entry.ts'), dirName, isNamedClassDeclaration);
 

@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -8,11 +8,11 @@
 
 import {fakeAsync, tick} from '@angular/core/testing';
 import {describe, expect, it} from '@angular/core/testing/src/testing_internal';
-import {AbstractControl, AsyncValidatorFn, FormArray, FormControl, Validators} from '@angular/forms';
-import {normalizeAsyncValidator} from '@angular/forms/src/directives/normalize_validator';
-import {AsyncValidator, ValidationErrors, ValidatorFn} from '@angular/forms/src/directives/validators';
+import {AbstractControl, AsyncValidator, AsyncValidatorFn, FormArray, FormControl, ValidationErrors, ValidatorFn, Validators} from '@angular/forms';
 import {Observable, of, timer} from 'rxjs';
 import {first, map} from 'rxjs/operators';
+
+import {normalizeValidators} from '../src/validators';
 
 (function() {
 function validator(key: string, error: any): ValidatorFn {
@@ -225,6 +225,26 @@ describe('Validators', () => {
         'minlength': {'requiredLength': 2, 'actualLength': 1}
       });
     });
+
+    it('should always return null with numeric values', () => {
+      expect(Validators.minLength(1)(new FormControl(0))).toBeNull();
+      expect(Validators.minLength(1)(new FormControl(1))).toBeNull();
+      expect(Validators.minLength(1)(new FormControl(-1))).toBeNull();
+      expect(Validators.minLength(1)(new FormControl(+1))).toBeNull();
+    });
+
+    it('should trigger validation for an object that contains numeric length property', () => {
+      const value = {length: 5, someValue: [1, 2, 3, 4, 5]};
+      expect(Validators.minLength(1)(new FormControl(value))).toBeNull();
+      expect(Validators.minLength(10)(new FormControl(value))).toEqual({
+        'minlength': {'requiredLength': 10, 'actualLength': 5}
+      });
+    });
+
+    it('should return null when passing a boolean', () => {
+      expect(Validators.minLength(1)(new FormControl(true))).toBeNull();
+      expect(Validators.minLength(1)(new FormControl(false))).toBeNull();
+    });
   });
 
   describe('maxLength', () => {
@@ -260,6 +280,26 @@ describe('Validators', () => {
       expect(Validators.maxLength(1)(fa)).toEqual({
         'maxlength': {'requiredLength': 1, 'actualLength': 2}
       });
+    });
+
+    it('should always return null with numeric values', () => {
+      expect(Validators.maxLength(1)(new FormControl(0))).toBeNull();
+      expect(Validators.maxLength(1)(new FormControl(1))).toBeNull();
+      expect(Validators.maxLength(1)(new FormControl(-1))).toBeNull();
+      expect(Validators.maxLength(1)(new FormControl(+1))).toBeNull();
+    });
+
+    it('should trigger validation for an object that contains numeric length property', () => {
+      const value = {length: 5, someValue: [1, 2, 3, 4, 5]};
+      expect(Validators.maxLength(10)(new FormControl(value))).toBeNull();
+      expect(Validators.maxLength(1)(new FormControl(value))).toEqual({
+        'maxlength': {'requiredLength': 1, 'actualLength': 5}
+      });
+    });
+
+    it('should return null when passing a boolean', () => {
+      expect(Validators.maxLength(1)(new FormControl(true))).toBeNull();
+      expect(Validators.maxLength(1)(new FormControl(false))).toBeNull();
     });
   });
 
@@ -373,11 +413,12 @@ describe('Validators', () => {
          }));
 
       it('should normalize and evaluate async validator-directives correctly', fakeAsync(() => {
-           const v = Validators.composeAsync(
-               [normalizeAsyncValidator(new AsyncValidatorDirective('expected', {'one': true}))])!;
+           const normalizedValidators = normalizeValidators<AsyncValidatorFn>(
+               [new AsyncValidatorDirective('expected', {'one': true})]);
+           const validatorFn = Validators.composeAsync(normalizedValidators)!;
 
            let errorMap: {[key: string]: any}|null = undefined!;
-           (v(new FormControl('invalid')) as Observable<ValidationErrors|null>)
+           (validatorFn(new FormControl('invalid')) as Observable<ValidationErrors|null>)
                .pipe(first())
                .subscribe((errors: {[key: string]: any}|null) => errorMap = errors);
            tick();
@@ -435,11 +476,12 @@ describe('Validators', () => {
       });
 
       it('should normalize and evaluate async validator-directives correctly', () => {
-        const v = Validators.composeAsync(
-            [normalizeAsyncValidator(new AsyncValidatorDirective('expected', {'one': true}))])!;
+        const normalizedValidators = normalizeValidators<AsyncValidatorFn>(
+            [new AsyncValidatorDirective('expected', {'one': true})]);
+        const validatorFn = Validators.composeAsync(normalizedValidators)!;
 
         let errorMap: {[key: string]: any}|null = undefined!;
-        (v(new FormControl('invalid')) as Observable<ValidationErrors|null>)
+        (validatorFn(new FormControl('invalid')) as Observable<ValidationErrors|null>)
             .pipe(first())
             .subscribe((errors: {[key: string]: any}|null) => errorMap = errors)!;
 

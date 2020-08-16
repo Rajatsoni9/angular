@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -48,7 +48,9 @@ export class TokenError extends ParseError {
 }
 
 export class TokenizeResult {
-  constructor(public tokens: Token[], public errors: TokenError[]) {}
+  constructor(
+      public tokens: Token[], public errors: TokenError[],
+      public nonNormalizedIcuExpressions: Token[]) {}
 }
 
 export interface LexerRange {
@@ -96,6 +98,15 @@ export interface TokenizeOptions {
    */
   escapedString?: boolean;
   /**
+   * If this text is stored in an external template (e.g. via `templateUrl`) then we need to decide
+   * whether or not to normalize the line-endings (from `\r\n` to `\n`) when processing ICU
+   * expressions.
+   *
+   * If `true` then we will normalize ICU expression line endings.
+   * The default is `false`, but this will be switched in a future major release.
+   */
+  i18nNormalizeLineEndingsInICUs?: boolean;
+  /**
    * An array of characters that should be considered as leading trivia.
    * Leading trivia are characters that are not important to the developer, and so should not be
    * included in source-map segments.  A common example is whitespace.
@@ -110,7 +121,10 @@ export interface TokenizeOptions {
 export function tokenize(
     source: string, url: string, getTagDefinition: (tagName: string) => TagDefinition,
     options: TokenizeOptions = {}): TokenizeResult {
-  return new _Tokenizer(new ParseSourceFile(source, url), getTagDefinition, options).tokenize();
+  const tokenizer = new _Tokenizer(new ParseSourceFile(source, url), getTagDefinition, options);
+  tokenizer.tokenize();
+  return new TokenizeResult(
+      mergeTextTokens(tokenizer.tokens), tokenizer.errors, tokenizer.nonNormalizedIcuExpressions);
 }
 
 const _CR_OR_CRLF_REGEXP = /\r\n?/g;
@@ -122,6 +136,16 @@ function _unexpectedCharacterErrorMsg(charCode: number): string {
 
 function _unknownEntityErrorMsg(entitySrc: string): string {
   return `Unknown entity "${entitySrc}" - use the "&#<decimal>;" or  "&#x<hex>;" syntax`;
+}
+
+function _unparsableEntityErrorMsg(type: CharacterReferenceType, entityStr: string): string {
+  return `Unable to parse entity "${entityStr}" - ${
+      type} character reference entities must end with ";"`;
+}
+
+enum CharacterReferenceType {
+  HEX = 'hexadecimal',
+  DEC = 'decimal',
 }
 
 class _ControlFlowError {
@@ -139,8 +163,11 @@ class _Tokenizer {
   private _expansionCaseStack: TokenType[] = [];
   private _inInterpolation: boolean = false;
   private readonly _preserveLineEndings: boolean;
+  private readonly _escapedString: boolean;
+  private readonly _i18nNormalizeLineEndingsInICUs: boolean;
   tokens: Token[] = [];
   errors: TokenError[] = [];
+  nonNormalizedIcuExpressions: Token[] = [];
 
   /**
    * @param _file The html source file being tokenized.
@@ -159,6 +186,8 @@ class _Tokenizer {
     this._cursor = options.escapedString ? new EscapedCharacterCursor(_file, range) :
                                            new PlainCharacterCursor(_file, range);
     this._preserveLineEndings = options.preserveLineEndings || false;
+    this._escapedString = options.escapedString || false;
+    this._i18nNormalizeLineEndingsInICUs = options.i18nNormalizeLineEndingsInICUs || false;
     try {
       this._cursor.init();
     } catch (e) {
@@ -177,7 +206,7 @@ class _Tokenizer {
     return content.replace(_CR_OR_CRLF_REGEXP, '\n');
   }
 
-  tokenize(): TokenizeResult {
+  tokenize(): void {
     while (this._cursor.peek() !== chars.$EOF) {
       const start = this._cursor.clone();
       try {
@@ -204,7 +233,6 @@ class _Tokenizer {
     }
     this._beginToken(TokenType.EOF);
     this._endToken([]);
-    return new TokenizeResult(mergeTextTokens(this.tokens), this.errors);
   }
 
   /**
@@ -382,8 +410,13 @@ class _Tokenizer {
       const codeStart = this._cursor.clone();
       this._attemptCharCodeUntilFn(isDigitEntityEnd);
       if (this._cursor.peek() != chars.$SEMICOLON) {
+        // Advance cursor to include the peeked character in the string provided to the error
+        // message.
+        this._cursor.advance();
+        const entityType = isHex ? CharacterReferenceType.HEX : CharacterReferenceType.DEC;
         throw this._createError(
-            _unexpectedCharacterErrorMsg(this._cursor.peek()), this._cursor.getSpan());
+            _unparsableEntityErrorMsg(entityType, this._cursor.getChars(start)),
+            this._cursor.getSpan());
       }
       const strNum = this._cursor.getChars(codeStart);
       this._cursor.advance();
@@ -608,7 +641,19 @@ class _Tokenizer {
 
     this._beginToken(TokenType.RAW_TEXT);
     const condition = this._readUntil(chars.$COMMA);
-    this._endToken([condition]);
+    const normalizedCondition = this._processCarriageReturns(condition);
+    if (this._escapedString || this._i18nNormalizeLineEndingsInICUs) {
+      // Either the template is inline or,
+      // we explicitly want to normalize line endings for this text.
+      this._endToken([normalizedCondition]);
+    } else {
+      // The expression is in an external template and, for backward compatibility,
+      // we are not normalizing line endings.
+      const conditionToken = this._endToken([condition]);
+      if (normalizedCondition !== condition) {
+        this.nonNormalizedIcuExpressions.push(conditionToken);
+      }
+    }
     this._requireCharCode(chars.$COMMA);
     this._attemptCharCodeUntilFn(isNotWhitespace);
 

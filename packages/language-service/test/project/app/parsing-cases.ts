@@ -1,41 +1,14 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {Component, Directive, EventEmitter, Input, OnChanges, Output, SimpleChanges, TemplateRef, ViewContainerRef} from '@angular/core';
+import {Component, Directive, EventEmitter, Input, OnChanges, Output, Pipe, PipeTransform, SimpleChanges, TemplateRef, ViewContainerRef} from '@angular/core';
 
 import {Hero} from './app.component';
-
-@Component({
-  template: `
-    <h1>
-      Some <~{incomplete-open-lt}a~{incomplete-open-a} ~{incomplete-open-attr} text
-    </h1>`,
-})
-export class CaseIncompleteOpen {
-}
-
-@Component({
-  template: '<h1>Some <a> ~{missing-closing} text</h1>',
-})
-export class CaseMissingClosing {
-}
-
-@Component({
-  template: '<h1>Some <unknown ~{unknown-element}> text</h1>',
-})
-export class CaseUnknown {
-}
-
-@Component({
-  template: '<h1 h~{no-value-attribute}></h1>',
-})
-export class NoValueAttribute {
-}
 
 @Directive({
   selector: '[string-model]',
@@ -76,7 +49,7 @@ export class CounterDirective implements OnChanges {
   ngOnChanges(_changes: SimpleChanges) {
     this.container.clear();
     for (let i = 0; i < this.counter; ++i) {
-      this.container.createEmbeddedView(this.template, new CounterDirectiveContext<number>(i + 1));
+      this.container.createEmbeddedView(this.template, new CounterDirectiveContext(i + 1));
     }
   }
 }
@@ -93,6 +66,20 @@ export class WithContextDirective {
   static ngTemplateContextGuard(dir: WithContextDirective, ctx: unknown):
       ctx is WithContextDirectiveContext {
     return true;
+  }
+}
+
+@Pipe({
+  name: 'prefixPipe',
+})
+export class TestPipe implements PipeTransform {
+  transform(value: string, prefix: string): string;
+  transform(value: number, prefix: number): number;
+  transform(value: string|number, prefix: string|number): string|number {
+    if (typeof value === 'string') {
+      return `${prefix} ${value}`;
+    }
+    return parseInt(`${prefix}${value}`, 10 /* radix */);
   }
 }
 
@@ -115,7 +102,7 @@ export class TemplateReference {
   /**
    * This is the title of the `TemplateReference` Component.
    */
-  title = 'Some title';
+  title = 'Tour of Heroes';
   hero: Hero = {id: 1, name: 'Windstorm'};
   heroP = Promise.resolve(this.hero);
   heroes: Hero[] = [this.hero];
@@ -133,4 +120,8 @@ export class TemplateReference {
   readonlyHeroes: ReadonlyArray<Readonly<Hero>> = this.heroes;
   constNames = [{name: 'name'}] as const;
   private myField = 'My Field';
+  strOrNumber: string|number = '';
+  setTitle(newTitle: string) {
+    this.title = newTitle;
+  }
 }

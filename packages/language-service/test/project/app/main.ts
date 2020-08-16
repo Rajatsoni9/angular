@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
@@ -16,22 +16,15 @@ import * as ParsingCases from './parsing-cases';
   imports: [CommonModule, FormsModule],
   declarations: [
     AppComponent,
-    ParsingCases.CaseIncompleteOpen,
-    ParsingCases.CaseMissingClosing,
-    ParsingCases.CaseUnknown,
     ParsingCases.CounterDirective,
     ParsingCases.HintModel,
-    ParsingCases.NoValueAttribute,
     ParsingCases.NumberModel,
     ParsingCases.StringModel,
     ParsingCases.TemplateReference,
     ParsingCases.TestComponent,
+    ParsingCases.TestPipe,
     ParsingCases.WithContextDirective,
   ]
 })
 export class AppModule {
 }
-
-declare function bootstrap(v: any): void;
-
-bootstrap(AppComponent);
